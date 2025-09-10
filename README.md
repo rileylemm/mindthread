@@ -43,6 +43,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `list` | Show all saved notes |
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail |
+| `help` | Show available commands |
 
 ## Configuration
 
