@@ -43,6 +43,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `list` | Show all saved notes |
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail |
+| `related <id>` | Find related thoughts using AI embeddings |
 | `help` | Show available commands |
 
 ## Configuration
@@ -57,11 +58,11 @@ That's it! No other configuration needed.
 
 ## Architecture
 
-- **Single file**: Everything in `main.py` (~150 lines)
+- **Single file**: Everything in `main.py` (~200 lines)
 - **Storage**: Simple JSON file (`notes.json`)
 - **Embeddings**: OpenAI text-embedding-3-small
 - **AI Tagging**: GPT-4 for automatic categorization
-- **Search**: Basic text matching (extensible to vector search)
+- **Search**: Text matching + vector similarity with scikit-learn
 - **CLI**: Simple `sys.argv` parsing
 
 ## Example Workflow
@@ -102,6 +103,20 @@ Found 1 matching notes:
 Category: Knowledge Systems
 Text: I want to find a way to let my notes connect themselves into a web of ideas.
 ------------------------------
+
+$ mindthread related 1
+🧠 Related thoughts for: Web of Ideas
+============================================================
+Target note: I want to find a way to let my notes connect themselves into a web of ideas
+
+Most similar notes:
+----------------------------------------
+
+1. [2] Building Knowledge Networks (similarity: 0.847)
+   Category: Knowledge Systems
+   Tags: networks, learning, connections, systems
+   Text: Creating interconnected knowledge systems that help ideas flow...
+----------------------------------------
 ```
 
 ## Why This Project?
@@ -117,19 +132,21 @@ Text: I want to find a way to let my notes connect themselves into a web of idea
 
 When you need more features, you can easily add:
 
-- **Vector Search**: Add FAISS for semantic similarity
+- **FAISS Integration**: Scale to 1000+ notes with faster vector search
 - **Edit/Delete**: Add note modification commands
 - **Export**: Add JSON/Markdown export functions
 - **Categories**: Add category filtering
 - **Better CLI**: Add argparse for more options
+- **Related Notes Limit**: Make the number of related notes configurable
 
-But start simple. Build the brain before the face.
+The foundation is solid - vector search is already working with scikit-learn!
 
 ## Dependencies
 
-Just 2 dependencies:
+Just 3 dependencies:
 - `openai` - For embeddings and GPT tagging
 - `python-dotenv` - For environment variable loading
+- `scikit-learn` - For cosine similarity calculations
 
 ## Installation
 

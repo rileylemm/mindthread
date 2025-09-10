@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 import openai
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Load environment
 load_dotenv()
@@ -234,6 +236,56 @@ def show_note(note_id):
     print(f"Created: {note['created_at']}")
     print(f"\nText:\n{note['text']}")
 
+def find_related_notes(note_id, top_k=5):
+    """Find related notes using cosine similarity on embeddings"""
+    notes = load_notes()
+    if not notes:
+        print("No notes found.")
+        return
+    
+    # Find the target note
+    target_note = next((n for n in notes if n['id'] == note_id), None)
+    if not target_note:
+        print(f"Note {note_id} not found.")
+        return
+    
+    # Check if target note has embedding
+    if 'embedding' not in target_note or not target_note['embedding']:
+        print(f"Note {note_id} doesn't have an embedding. Cannot find related notes.")
+        return
+    
+    # Get all notes with embeddings (excluding the target note)
+    notes_with_embeddings = [n for n in notes if n['id'] != note_id and 'embedding' in n and n['embedding']]
+    
+    if not notes_with_embeddings:
+        print("No other notes with embeddings found.")
+        return
+    
+    # Convert embeddings to numpy arrays
+    target_embedding = np.array(target_note['embedding']).reshape(1, -1)
+    other_embeddings = np.array([n['embedding'] for n in notes_with_embeddings])
+    
+    # Calculate cosine similarities
+    similarities = cosine_similarity(target_embedding, other_embeddings)[0]
+    
+    # Get top k most similar notes
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+    
+    print(f"\n🧠 Related thoughts for: {target_note['title']}")
+    print("=" * 60)
+    print(f"Target note: {target_note['text'][:100]}{'...' if len(target_note['text']) > 100 else ''}")
+    print("\nMost similar notes:")
+    print("-" * 40)
+    
+    for i, idx in enumerate(top_indices, 1):
+        note = notes_with_embeddings[idx]
+        similarity = similarities[idx]
+        print(f"\n{i}. [{note['id']}] {note['title']} (similarity: {similarity:.3f})")
+        print(f"   Category: {note['category']}")
+        print(f"   Tags: {', '.join(note['tags'])}")
+        print(f"   Text: {note['text'][:150]}{'...' if len(note['text']) > 150 else ''}")
+        print("-" * 40)
+
 def show_help():
     """Show available commands"""
     print("🧠 mindthread-cli - Build your second brain")
@@ -243,6 +295,7 @@ def show_help():
     print("  list                - List all notes")
     print("  search \"query\"      - Search notes")
     print("  show <id>           - Show specific note")
+    print("  related <id>        - Find related thoughts using AI embeddings")
     print("  help                - Show this help message")
 
 def main():
@@ -283,6 +336,13 @@ def main():
             sys.exit(1)
         note_id = sys.argv[2]
         show_note(note_id)
+    
+    elif command == "related":
+        if len(sys.argv) < 3:
+            print("Usage: python main.py related <note_id>")
+            sys.exit(1)
+        note_id = sys.argv[2]
+        find_related_notes(note_id)
     
     elif command == "help":
         show_help()
