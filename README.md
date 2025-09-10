@@ -1,10 +1,10 @@
-# 🧠 mindthread-cli
+# mindthread-cli
 
 **A lightweight terminal-first assistant for building your second brain.**
 
 Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Install dependencies:**
    ```bash
@@ -17,18 +17,24 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
    # Edit .env and add your OpenAI API key
    ```
 
-3. **Add your first note:**
+3. **Install the mindthread command:**
    ```bash
-   python main.py add
+   sudo ./install.sh
+   # or for user installation: ./install-user.sh
+   ```
+
+4. **Add your first note:**
+   ```bash
+   mindthread add
    # Follow the interactive prompts
    ```
 
-4. **List your notes:**
+5. **List your notes:**
    ```bash
-   python main.py list
+   mindthread list
    ```
 
-## 📋 Commands
+## Commands
 
 | Command | Description |
 |---------|-------------|
@@ -38,7 +44,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail |
 
-## 🔧 Configuration
+## Configuration
 
 Set your OpenAI API key in the `.env` file:
 
@@ -48,7 +54,7 @@ OPENAI_API_KEY=sk-...
 
 That's it! No other configuration needed.
 
-## 🏗️ Architecture
+## Architecture
 
 - **Single file**: Everything in `main.py` (~150 lines)
 - **Storage**: Simple JSON file (`notes.json`)
@@ -57,15 +63,15 @@ That's it! No other configuration needed.
 - **Search**: Basic text matching (extensible to vector search)
 - **CLI**: Simple `sys.argv` parsing
 
-## 🧪 Example Workflow
+## Example Workflow
 
 ```bash
-$ python main.py add
+$ mindthread add
 Add your note here: I want to find a way to let my notes connect themselves into a web of ideas
 
 Processing note...
 
-📝 Generated metadata:
+Generated metadata:
 Title: Web of Ideas
 Category: Knowledge Systems
 Tags: notes, connections, creativity, networks
@@ -73,11 +79,11 @@ Tags: notes, connections, creativity, networks
 Confirm category/tags? (y/n/edit): y
 
 Generating embedding...
-✅ Note saved! ID: 1
+Note saved! ID: 1
 
-$ python main.py list
+$ mindthread list
 
-📝 Your Notes (1 total):
+Your Notes (1 total):
 ==================================================
 
 [1] Web of Ideas
@@ -87,8 +93,8 @@ Created: 2025-01-27
 Text: I want to find a way to let my notes connect themselves into a web of ideas.
 ------------------------------
 
-$ python main.py search "connect ideas"
-🔍 Found 1 matching notes:
+$ mindthread search "connect ideas"
+Found 1 matching notes:
 ==================================================
 
 [1] Web of Ideas
@@ -97,7 +103,7 @@ Text: I want to find a way to let my notes connect themselves into a web of idea
 ------------------------------
 ```
 
-## 🎯 Why This Project?
+## Why This Project?
 
 - **Low friction**: Just type and let AI handle the organization
 - **Terminal-first**: No GUI distractions, pure thought capture
@@ -106,7 +112,7 @@ Text: I want to find a way to let my notes connect themselves into a web of idea
 - **Personal**: Built for your own note-taking workflow
 - **Extensible**: Easy to add features as you need them
 
-## 🔮 Future Enhancements
+## Future Enhancements
 
 When you need more features, you can easily add:
 
@@ -118,13 +124,13 @@ When you need more features, you can easily add:
 
 But start simple. Build the brain before the face.
 
-## 📦 Dependencies
+## Dependencies
 
 Just 2 dependencies:
 - `openai` - For embeddings and GPT tagging
 - `python-dotenv` - For environment variable loading
 
-## 🚀 Installation
+## Installation
 
 ### **Option 1: Global Installation (Recommended)**
 
@@ -139,7 +145,7 @@ sudo ./install.sh
 
 ### **Option 2: User Installation (No sudo required)**
 
-```bash
+
 git clone <your-repo>
 cd mindthread
 pip install -r requirements.txt
