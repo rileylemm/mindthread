@@ -306,6 +306,38 @@ def find_related_notes(note_id, top_k=5):
         print(f"   Text: {note['text'][:150]}{'...' if len(note['text']) > 150 else ''}")
         print("-" * 40)
 
+def remove_note(note_id):
+    """Remove a note by ID"""
+    notes = load_notes()
+    if not notes:
+        print("No notes found.")
+        return
+    
+    # Find the note to remove
+    note_to_remove = next((n for n in notes if n['id'] == note_id), None)
+    if not note_to_remove:
+        print(f"Note {note_id} not found.")
+        return
+    
+    # Show the note that will be removed
+    print(f"\n🗑️  Removing note:")
+    print(f"ID: {note_to_remove['id']}")
+    print(f"Title: {note_to_remove['title']}")
+    print(f"Category: {note_to_remove['category']}")
+    print(f"Text: {note_to_remove['text'][:100]}{'...' if len(note_to_remove['text']) > 100 else ''}")
+    
+    # Confirmation
+    confirm = input("\nAre you sure you want to delete this note? (y/N): ").strip().lower()
+    if confirm != 'y':
+        print("❌ Note deletion cancelled.")
+        return
+    
+    # Remove the note
+    notes = [n for n in notes if n['id'] != note_id]
+    save_notes(notes)
+    
+    print(f"✅ Note {note_id} deleted successfully.")
+
 def show_help():
     """Show available commands"""
     print("🧠 mindthread-cli - Build your second brain")
@@ -315,6 +347,7 @@ def show_help():
     print("  list                - List all notes")
     print("  search \"query\"      - Search notes")
     print("  show <id>           - Show specific note")
+    print("  remove <id>         - Remove a note by ID")
     print("  related <id>        - Find related thoughts using AI embeddings")
     print("  help                - Show this help message")
 
@@ -363,6 +396,13 @@ def main():
             sys.exit(1)
         note_id = sys.argv[2]
         find_related_notes(note_id)
+    
+    elif command == "remove":
+        if len(sys.argv) < 3:
+            print("Usage: python main.py remove <note_id>")
+            sys.exit(1)
+        note_id = sys.argv[2]
+        remove_note(note_id)
     
     elif command == "help":
         show_help()
