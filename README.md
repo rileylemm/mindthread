@@ -44,6 +44,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail |
 | `related <id>` | Find related thoughts using AI embeddings |
+| `agent-brief` | Print an instant project orientation for AI agents |
 | `help` | Show available commands |
 
 ## Configuration
@@ -58,12 +59,17 @@ That's it! No other configuration needed.
 
 ## Architecture
 
-- **Single file**: Everything in `main.py` (~200 lines)
-- **Storage**: Simple JSON file (`notes.json`)
+- **Modular package**: CLI orchestrator with reusable modules in `mindthread_app/`
+  - `cli.py` – command parsing, interactive prompts, console rendering
+  - `notes.py` – note CRUD, search, related-note logic
+  - `services/openai_service.py` – GPT metadata + embedding helpers with error handling
+  - `storage.py` – JSON persistence (respects `DATA_DIR` and the legacy `notes.json` fallback)
+  - `config.py` – dotenv-backed settings loader
+- **Storage**: JSON file (defaults to `notes.json`, or `<DATA_DIR>/notes.json` if configured)
 - **Embeddings**: OpenAI text-embedding-3-small
 - **AI Tagging**: GPT-4 for automatic categorization
 - **Search**: Text matching + vector similarity with scikit-learn
-- **CLI**: Simple `sys.argv` parsing
+- **CLI**: Lightweight command dispatcher (still installable via the `mindthread` script)
 
 ## Example Workflow
 
@@ -123,7 +129,7 @@ Most similar notes:
 
 - **Low friction**: Just type and let AI handle the organization
 - **Terminal-first**: No GUI distractions, pure thought capture
-- **Simple**: Single file, minimal dependencies, easy to understand
+- **Simple**: Small modular package, minimal dependencies, easy to understand
 - **Auto-tagging**: No more manual categorization decisions
 - **Personal**: Built for your own note-taking workflow
 - **Extensible**: Easy to add features as you need them
@@ -133,7 +139,7 @@ Most similar notes:
 When you need more features, you can easily add:
 
 - **FAISS Integration**: Scale to 1000+ notes with faster vector search
-- **Edit/Delete**: Add note modification commands
+- **Edit**: Add note modification commands
 - **Export**: Add JSON/Markdown export functions
 - **Categories**: Add category filtering
 - **Better CLI**: Add argparse for more options
@@ -143,10 +149,11 @@ The foundation is solid - vector search is already working with scikit-learn!
 
 ## Dependencies
 
-Just 3 dependencies:
+Just 4 dependencies:
 - `openai` - For embeddings and GPT tagging
 - `python-dotenv` - For environment variable loading
 - `scikit-learn` - For cosine similarity calculations
+- `httpx` - Required by the OpenAI SDK
 
 ## Installation
 

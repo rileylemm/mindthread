@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
-from main import main
+"""Console script entry point for mindthread."""
+
+from mindthread_app.cli import main
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
