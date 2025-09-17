@@ -2,21 +2,34 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
-from typing import Sequence
+import tempfile
+from typing import Iterable, Sequence, Tuple
+
+from pydoc import pager
 
 from .briefing import get_agent_brief
+from .catalog import Catalog, load_catalog, save_catalog
 from .config import get_settings
 from .notes import (
     AIServiceError,
     auto_enrich_note,
-    build_note,
     find_related_notes,
     get_note,
     list_all_notes,
+    build_note,
     persist_note,
     remove_note,
     search_notes,
+    note_counts_by_day,
+    rename_category,
+    rename_tag,
+    update_note_text,
+    tag_frequency,
+    suggest_related_by_embedding,
 )
 
 
@@ -28,15 +41,24 @@ def _require_api_key() -> bool:
     return False
 
 
-def _print_note_summary(note: dict) -> None:
-    print(f"[{note['id']}] {note['title']}")
-    print(f"Category: {note['category']}")
-    print(f"Tags: {', '.join(note['tags'])}")
-    print(f"Created: {note['created_at'][:10]}")
-    text = note['text']
+def _format_note_summary(note: dict) -> list[str]:
+    category_tile = f"[cat: {note['category']}]" if note.get("category") else ""
+    tags = note.get("tags", [])
+    tags_tile = f"[tags: {', '.join(tags)}]" if tags else ""
+    links = len(note.get("related_ids", []))
+    links_tile = f"[links: {links}]" if links else ""
+    created_tile = f"[created: {note['created_at'][:10]}]" if note.get("created_at") else ""
+    header_tiles = " ".join(tile for tile in [category_tile, tags_tile, links_tile, created_tile] if tile)
+    header = f"[{note['id']}] {note['title']} {header_tiles}".rstrip()
+    text = note.get("text", "")
     snippet = text[:100] + ("..." if len(text) > 100 else "")
-    print(f"Text: {snippet}")
-    print("-" * 30)
+    body = f"    {snippet}" if snippet else ""
+    return [header] + ([body] if body else [])
+
+
+def _print_note_summary(note: dict) -> None:
+    for line in _format_note_summary(note):
+        print(line)
 
 
 def _interactive_add() -> int:
@@ -46,37 +68,36 @@ def _interactive_add() -> int:
         return 1
 
     print("\nProcessing note...")
+    catalog = load_catalog()
     try:
-        metadata, embedding = auto_enrich_note(text)
+        metadata, embedding = auto_enrich_note(text, catalog.categories, catalog.tags)
     except AIServiceError as exc:
         print(f"❌ {exc}")
         return 1
 
-    while True:
-        print("\n📝 Generated metadata:")
-        print(f"Title: {metadata['title']}")
-        print(f"Category: {metadata['category']}")
-        print(f"Tags: {', '.join(metadata['tags'])}")
+    metadata = _apply_catalog_defaults(metadata, catalog)
+    _display_metadata(metadata, catalog)
 
-        choice = input("\nConfirm category/tags? (y/n/edit): ").strip().lower()
+    while True:
+        choice = input("\nConfirm metadata? (y/n/edit): ").strip().lower()
         if choice == "y":
             break
         if choice == "n":
             print("❌ Note not saved")
             return 1
         if choice == "edit":
-            new_category = input("New category (or press enter to keep current): ").strip()
-            if new_category:
-                metadata["category"] = new_category
+            metadata = _edit_metadata(metadata, catalog)
+            _display_metadata(metadata, catalog)
+        else:
+            print("Please enter 'y', 'n', or 'edit'.")
 
-            new_tags = input("New tags (comma-separated, or press enter to keep current): ").strip()
-            if new_tags:
-                metadata["tags"] = [tag.strip() for tag in new_tags.split(",") if tag.strip()]
-            continue
-        print("Please enter 'y', 'n', or 'edit'.")
+    linked_ids = _prompt_related_links(metadata, embedding)
 
-    note = build_note(text, metadata, embedding)
-    persist_note(note)
+    note = build_note(text, metadata, embedding, related_ids=linked_ids)
+    persist_note(note, linked_ids)
+    catalog.add_category(note["category"])
+    catalog.add_tags(note["tags"])
+    save_catalog(catalog)
     print(f"\n✅ Note saved! ID: {note['id']}")
     return 0
 
@@ -87,36 +108,66 @@ def _direct_add(args: Sequence[str]) -> int:
 
     text = args[0]
     print("Processing note...")
+    catalog = load_catalog()
     try:
-        metadata, embedding = auto_enrich_note(text)
+        metadata, embedding = auto_enrich_note(text, catalog.categories, catalog.tags)
     except AIServiceError as exc:
         print(f"❌ {exc}")
         return 1
 
+    metadata = _apply_catalog_defaults(metadata, catalog)
     print(f"Title: {metadata['title']}")
     print(f"Category: {metadata['category']}")
     print(f"Tags: {', '.join(metadata['tags'])}")
 
     note = build_note(text, metadata, embedding)
     persist_note(note)
+    catalog.add_category(note["category"])
+    catalog.add_tags(note["tags"])
+    save_catalog(catalog)
     print(f"✅ Note saved! ID: {note['id']}")
     return 0
 
 
-def _handle_list() -> int:
+def _extract_flag(args: Sequence[str], flag: str) -> Tuple[bool, list[str]]:
+    args_list = list(args)
+    found = False
+    while flag in args_list:
+        args_list.remove(flag)
+        found = True
+    return found, args_list
+
+
+def _maybe_page(text: str, use_pager: bool, allow_disable: bool = True) -> None:
+    if allow_disable and use_pager:
+        pager(text)
+        return
+    if not allow_disable:
+        pager(text)
+        return
+    print(text)
+
+
+def _handle_list(args: Sequence[str]) -> int:
+    disable_pager, remaining = _extract_flag(args, "--no-pager")
+    use_pager = not disable_pager
     notes = list_all_notes()
     if not notes:
         print("No notes found.")
         return 0
 
-    print(f"\n📝 Your Notes ({len(notes)} total):")
-    print("=" * 50)
+    lines = [f"📝 Your Notes ({len(notes)} total):", "=" * 60]
     for note in notes:
-        _print_note_summary(note)
+        lines.append("")
+        lines.extend(_format_note_summary(note))
+    _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
     return 0
 
 
 def _handle_search(args: Sequence[str]) -> int:
+    disable_pager, remaining = _extract_flag(args, "--no-pager")
+    use_pager = not disable_pager
+    args = remaining
     if not args:
         print("Usage: mindthread search \"your query\"")
         return 1
@@ -127,31 +178,46 @@ def _handle_search(args: Sequence[str]) -> int:
         print("No matching notes found.")
         return 0
 
-    print(f"\n🔍 Found {len(matches)} matching notes:")
-    print("=" * 50)
+    lines = [f"🔍 Found {len(matches)} matching notes:", "=" * 60]
     for note in matches:
-        _print_note_summary(note)
+        lines.append("")
+        lines.extend(_format_note_summary(note))
+    _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
     return 0
 
 
 def _handle_show(args: Sequence[str]) -> int:
-    if not args:
+    disable_pager, remaining = _extract_flag(args, "--no-pager")
+    if not remaining:
+        remaining = args
+
+    if not remaining:
         print("Usage: mindthread show <note_id>")
         return 1
 
-    note_id = args[0]
+    note_id = remaining[0]
     note = get_note(note_id)
     if note is None:
         print(f"Note {note_id} not found.")
         return 1
 
-    print(f"\n📝 {note['title']}")
-    print("=" * 50)
-    print(f"Category: {note['category']}")
-    print(f"Tags: {', '.join(note['tags'])}")
-    print(f"Created: {note['created_at']}")
-    print(f"\nText:\n{note['text']}")
-    return 0
+    while True:
+        _maybe_page(_render_note_detail(note), use_pager=not disable_pager, allow_disable=False if not disable_pager else True)
+
+        action = input("\n[h]elp  [e]dit  [q]uit > ").strip().lower()
+        if action in {"q", "quit", ""}:
+            return 0
+        if action in {"h", "help"}:
+            print("Commands: h=help, e=edit note text, q=quit show view")
+            continue
+        if action in {"e", "edit"}:
+            if _handle_note_edit(note):
+                # Reload note after edit
+                refreshed = get_note(note_id)
+                if refreshed:
+                    note = refreshed
+            continue
+        print("Unknown command. Use 'h' for help.")
 
 
 def _handle_related(args: Sequence[str]) -> int:
@@ -225,7 +291,11 @@ def _print_help() -> None:
     print("  show <id>           - Show specific note")
     print("  related <id>        - Find related thoughts using AI embeddings")
     print("  remove <id>         - Remove a note by ID")
+    print("  stats               - Show note stats and sparkline history")
+    print("  tags [limit]        - Display tag frequency heatmap")
+    print("  clip                - Save current clipboard as a note")
     print("  agent-brief         - Print architecture overview for agents")
+    print("  catalog             - Review and tidy categories/tags")
     print("  help                - Show this help message")
 
 
@@ -249,7 +319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _direct_add(rest)
 
     if command == "list":
-        return _handle_list()
+        return _handle_list(rest)
 
     if command == "search":
         return _handle_search(rest)
@@ -270,6 +340,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command == "agent-brief":
         return _handle_agent_brief()
 
+    if command == "catalog":
+        return _handle_catalog()
+
+    if command == "clip":
+        return _handle_clip(rest)
+
+    if command == "stats":
+        return _handle_stats(rest)
+
+    if command == "tags":
+        return _handle_tags(rest)
+
     print(f"Unknown command: {command}")
     print("Use 'mindthread help' to see available commands")
     return 1
@@ -277,3 +359,456 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+def _apply_catalog_defaults(metadata: dict, catalog: Catalog) -> dict:
+    """Align metadata with existing categories/tags when possible."""
+
+    updated = metadata.copy()
+    category = updated.get("category", "")
+    match = catalog.closest_category(category)
+    if match:
+        updated["category"] = match
+
+    tags = [tag.strip() for tag in updated.get("tags", []) if tag.strip()]
+    updated["tags"] = sorted({tag for tag in tags})
+    return updated
+
+
+def _display_metadata(metadata: dict, catalog: Catalog) -> None:
+    category = metadata.get("category", "")
+    closest = catalog.closest_category(category) if category else None
+    tags = metadata.get("tags", [])
+    existing_tags = sorted(set(tags) & catalog.tags)
+    new_tags = sorted(set(tags) - catalog.tags)
+
+    print("\n📝 Generated metadata:")
+    print(f"Title: {metadata.get('title', 'Untitled')}")
+    if closest and closest != category:
+        print(f"Category: {category} (closest existing: {closest})")
+    else:
+        print(f"Category: {category}")
+    if existing_tags:
+        print(f"Tags (existing): {', '.join(existing_tags)}")
+    if new_tags:
+        print(f"Tags (new): {', '.join(new_tags)}")
+    if not tags:
+        print("Tags: (none)")
+
+
+def _prompt_category(current: str, catalog: Catalog) -> str:
+    print("\nCategory options:")
+    options = sorted(catalog.categories)
+    if options:
+        for idx, option in enumerate(options, 1):
+            print(f"  {idx}. {option}")
+    else:
+        print("  (no categories yet)")
+    prompt = (
+        "Enter category name, number from list, or press enter to keep current"
+        f" [{current}]: "
+    )
+    response = input(prompt).strip()
+    if not response:
+        return current
+    if response.isdigit():
+        idx = int(response) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+        print("Invalid selection; keeping current category.")
+        return current
+    return response
+
+
+def _prompt_tags(current: Iterable[str], catalog: Catalog) -> list[str]:
+    current_set = {tag.strip() for tag in current if tag.strip()}
+    print("\nCurrent tags:", ", ".join(sorted(current_set)) or "(none)")
+    if catalog.tags:
+        print("Existing tags you can reuse:")
+        print(", ".join(sorted(catalog.tags)))
+    response = input(
+        "Enter comma-separated tags to replace current (press enter to keep): "
+    ).strip()
+    if not response:
+        return sorted(current_set)
+    new_tags = {tag.strip() for tag in response.split(",") if tag.strip()}
+    return sorted(new_tags)
+
+
+def _edit_metadata(metadata: dict, catalog: Catalog) -> dict:
+    updated = metadata.copy()
+    while True:
+        choice = input("Edit (category/tags/back): ").strip().lower()
+        if choice in {"back", "b", ""}:
+            break
+        if choice.startswith("cat"):
+            updated["category"] = _prompt_category(updated.get("category", ""), catalog)
+        elif choice.startswith("tag"):
+            updated["tags"] = _prompt_tags(updated.get("tags", []), catalog)
+        else:
+            print("Please choose 'category', 'tags', or 'back'.")
+    return _apply_catalog_defaults(updated, catalog)
+
+
+def _prompt_related_links(metadata: dict, embedding: Sequence[float]) -> list[str]:
+    suggestions = suggest_related_by_embedding(embedding)
+    if not suggestions:
+        return []
+
+    print("\n🔗 Suggested related notes:")
+    linked_ids: list[str] = []
+    for note, similarity in suggestions:
+        snippet = note["text"][:80] + ("..." if len(note["text"]) > 80 else "")
+        prompt = (
+            f"Link to [{note['id']}] {note['title']} (sim {similarity:.2f})?\n"
+            f"   {snippet}\n( y / n / stop ): "
+        )
+        answer = input(prompt).strip().lower()
+        if answer == "stop":
+            break
+        if answer == "y":
+            linked_ids.append(note["id"])
+        elif answer and answer != "n":
+            print("Please respond with 'y', 'n', or 'stop'.")
+    return linked_ids
+
+
+def _render_note_detail(note: dict) -> str:
+    lines = [
+        f"📝 {note['title']}",
+        "=" * 60,
+        f"ID: {note['id']}",
+        f"Category: {note.get('category', '')}",
+        f"Tags: {', '.join(note.get('tags', []))}",
+        f"Created: {note.get('created_at', '')}",
+    ]
+    if note.get("updated_at"):
+        lines.append(f"Updated: {note['updated_at']}")
+
+    related = note.get("related_ids", [])
+    if related:
+        lines.append(f"Links: {', '.join(related)}")
+
+    lines.append("")
+    lines.append(note.get("text", ""))
+    return "\n".join(lines)
+
+
+def _launch_editor(initial_text: str) -> str | None:
+    editor = os.environ.get("EDITOR")
+    fallback = shutil.which("nano") or shutil.which("vi") or shutil.which("vim")
+    command = editor or fallback
+    if not command:
+        print("❌ No editor found. Set the EDITOR environment variable.")
+        return None
+
+    with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
+        tmp.write(initial_text)
+        tmp_path = tmp.name
+
+    try:
+        subprocess.run([command, tmp_path], check=False)
+        with open(tmp_path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def _handle_note_edit(note: dict) -> bool:
+    current_text = note.get("text", "")
+    edited = _launch_editor(current_text)
+    if edited is None:
+        return False
+
+    if edited == current_text:
+        print("No changes detected.")
+        return False
+
+    confirm = input("Save changes? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("❌ Changes discarded.")
+        return False
+
+    try:
+        update_note_text(note["id"], edited, regenerate_embedding=True)
+    except AIServiceError as exc:
+        print(f"❌ Failed to update note: {exc}")
+        return False
+
+    print("✅ Note updated.")
+    return True
+
+
+def _render_sparkline(counts: Sequence[int]) -> str:
+    if not counts:
+        return "(no data)"
+    symbols = " .:-=+*#"
+    max_count = max(counts)
+    if max_count == 0:
+        return "".join(symbols[1] for _ in counts)
+    return "".join(symbols[int((count / max_count) * (len(symbols) - 1))] for count in counts)
+
+
+def _handle_stats(args: Sequence[str]) -> int:
+    disable_pager, remaining = _extract_flag(args, "--no-pager")
+    use_pager = not disable_pager
+    limit = None
+    if remaining and remaining[0].isdigit():
+        limit = max(1, int(remaining[0]))
+
+    notes = list_all_notes()
+    total_notes = len(notes)
+    if total_notes == 0:
+        print("No notes captured yet.")
+        return 0
+
+    categories = sorted({note.get("category") for note in notes if note.get("category")})
+    unique_tags = sorted({tag for note in notes for tag in note.get("tags", []) if tag})
+    link_count = sum(len(note.get("related_ids", [])) for note in notes)
+
+    history = note_counts_by_day(limit or 14)
+    spark_counts = [count for _, count in history]
+    spark = _render_sparkline(spark_counts)
+    labels = " ".join(date[5:] for date, _ in history)
+
+    lines = [
+        "📊 mindthread stats",
+        "=" * 40,
+        f"Total notes: {total_notes}",
+        f"Categories: {len(categories)}",
+        f"Tags: {len(unique_tags)}",
+        f"Total links: {link_count}",
+        "",
+        f"History (last {len(history)} days):",
+        f"  {labels}" if labels else "  (no dates)",
+        f"  {spark}",
+    ]
+
+    freq = tag_frequency()[:5]
+    if freq:
+        lines.append("")
+        lines.append("Top tags:")
+        for tag, count in freq:
+            lines.append(f"  {tag}: {count}")
+
+    _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
+    return 0
+
+
+def _handle_tags(args: Sequence[str]) -> int:
+    disable_pager, remaining = _extract_flag(args, "--no-pager")
+    use_pager = not disable_pager
+    limit = None
+    if remaining and remaining[0].isdigit():
+        limit = max(1, int(remaining[0]))
+
+    freq = tag_frequency()
+    if not freq:
+        print("No tags recorded yet.")
+        return 0
+
+    if limit:
+        freq = freq[:limit]
+
+    max_count = freq[0][1]
+    bar_width = 24
+
+    lines = ["🏷️ Tag heatmap", "=" * 40]
+    for tag, count in freq:
+        scale = count / max_count if max_count else 0
+        bar_len = max(1, int(scale * bar_width))
+        bar = "#" * bar_len
+        lines.append(f"{tag:<20} {bar} ({count})")
+
+    _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
+    return 0
+
+
+def _print_catalog(catalog: Catalog) -> None:
+    print("\n📚 Catalog overview")
+    categories = sorted(catalog.categories)
+    tags = sorted(catalog.tags)
+    if categories:
+        print("Categories:")
+        for idx, category in enumerate(categories, 1):
+            print(f"  {idx}. {category}")
+    else:
+        print("Categories: (none)")
+
+    print("")
+    if tags:
+        print("Tags:")
+        for idx, tag in enumerate(tags, 1):
+            print(f"  {idx}. {tag}")
+    else:
+        print("Tags: (none)")
+
+
+def _resolve_selection(selection: str, options: Sequence[str], *, allow_new: bool) -> str | None:
+    if not selection:
+        return None
+
+    if selection.isdigit():
+        idx = int(selection) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+        if not allow_new:
+            return None
+
+    lowered_map = {opt.lower(): opt for opt in options}
+    lowered = selection.lower()
+    if lowered in lowered_map:
+        return lowered_map[lowered]
+
+    return selection if allow_new else None
+
+
+def _rename_category_flow(catalog: Catalog) -> None:
+    categories = sorted(catalog.categories)
+    if not categories:
+        print("No categories to rename.")
+        return
+
+    old_input = input(
+        "Select category to rename (number or name, blank to cancel): "
+    ).strip()
+    old = _resolve_selection(old_input, categories, allow_new=False)
+    if not old:
+        print("No matching category selected.")
+        return
+
+    new_input = input(
+        "New category name (number for existing, or type new name): "
+    ).strip()
+    if not new_input:
+        print("No changes made.")
+        return
+    new = _resolve_selection(new_input, categories, allow_new=True)
+    if not new:
+        print("Invalid selection.")
+        return
+
+    if rename_category(old, new):
+        catalog.remove_category(old)
+        catalog.add_category(new)
+        save_catalog(catalog)
+        print(f"Updated category '{old}' → '{new}'.")
+    else:
+        print("No notes needed updating.")
+
+
+def _rename_tag_flow(catalog: Catalog) -> None:
+    tags = sorted(catalog.tags)
+    if not tags:
+        print("No tags to rename.")
+        return
+
+    old_input = input(
+        "Select tag to rename (number or name, blank to cancel): "
+    ).strip()
+    old = _resolve_selection(old_input, tags, allow_new=False)
+    if not old:
+        print("No matching tag selected.")
+        return
+
+    new_input = input(
+        "New tag name (number for existing, type new name, '-' to remove): "
+    ).strip()
+    if not new_input:
+        print("No changes made.")
+        return
+
+    if new_input == "-":
+        new = ""
+    else:
+        new = _resolve_selection(new_input, tags, allow_new=True)
+        if new is None:
+            print("Invalid selection.")
+            return
+
+    if rename_tag(old, new or ""):
+        catalog.remove_tag(old)
+        if new:
+            catalog.add_tags([new])
+        save_catalog(catalog)
+        if new:
+            print(f"Updated tag '{old}' → '{new}'.")
+        else:
+            print(f"Removed tag '{old}'.")
+    else:
+        print("No notes needed updating.")
+
+
+def _handle_catalog() -> int:
+    catalog = load_catalog()
+    while True:
+        _print_catalog(catalog)
+        action = input(
+            "\nAction (rename-cat / rename-tag / refresh / exit): "
+        ).strip().lower()
+
+        if action in {"", "exit", "q", "quit"}:
+            return 0
+        if action in {"rename-cat", "cat", "c"}:
+            _rename_category_flow(catalog)
+            catalog = load_catalog()
+            continue
+        if action in {"rename-tag", "tag", "t"}:
+            _rename_tag_flow(catalog)
+            catalog = load_catalog()
+            continue
+        if action in {"refresh", "r"}:
+            catalog = load_catalog()
+            continue
+        print("Please choose a valid action.")
+
+
+def _read_clipboard() -> str | None:
+    try:
+        result = subprocess.run(
+            ["pbpaste"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    text = result.stdout.strip()
+    return text if text else None
+
+
+def _handle_clip(args: Sequence[str]) -> int:
+    text = _read_clipboard()
+    if not text:
+        print("Clipboard is empty or couldn't be read.")
+        return 1
+
+    print("Clipboard contents detected:\n")
+    preview = text[:200] + ("..." if len(text) > 200 else "")
+    print(preview)
+
+    confirm = input("\nSave this as a note? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("❌ Clipboard note not saved")
+        return 1
+
+    catalog = load_catalog()
+    try:
+        metadata, embedding = auto_enrich_note(text, catalog.categories, catalog.tags)
+    except AIServiceError as exc:
+        print(f"❌ {exc}")
+        return 1
+
+    metadata = _apply_catalog_defaults(metadata, catalog)
+    _display_metadata(metadata, catalog)
+
+    linked_ids = _prompt_related_links(metadata, embedding)
+
+    note = build_note(text, metadata, embedding, related_ids=linked_ids)
+    persist_note(note, linked_ids)
+    catalog.add_category(note["category"])
+    catalog.add_tags(note["tags"])
+    save_catalog(catalog)
+    print(f"\n✅ Clipboard note saved! ID: {note['id']}")
+    return 0

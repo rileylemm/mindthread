@@ -34,6 +34,10 @@ class Settings:
     def notes_file(self) -> Path:
         return self.data_dir / "notes.json"
 
+    @property
+    def catalog_file(self) -> Path:
+        return self.data_dir / "catalog.json"
+
 
 def _resolve_data_dir(raw_value: str | None) -> Path:
     if not raw_value:

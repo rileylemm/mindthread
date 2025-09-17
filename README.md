@@ -38,14 +38,22 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 
 | Command | Description |
 |---------|-------------|
-| `add` | Add a new note (interactive mode) |
+| `add` | Add a new note (interactive mode with metadata + link review) |
 | `add "note text"` | Add a new note (command line mode) |
 | `list` | Show all saved notes |
 | `search "query"` | Search through your notes |
-| `show <id>` | Show a specific note in detail |
+| `show <id>` | Show a specific note in detail (pager + inline actions) |
 | `related <id>` | Find related thoughts using AI embeddings |
+| `stats` | Show note stats and sparkline history |
+| `tags [limit]` | Display tag frequency heatmap |
 | `agent-brief` | Print an instant project orientation for AI agents |
+| `catalog` | Review categories/tags and tidy the catalog |
+| `clip` | Save current clipboard contents as a note |
 | `help` | Show available commands |
+
+Outputs for `list`, `search`, `stats`, and `tags` open in a pager by default. Add `--no-pager` to any of them to print directly.
+
+`show <id>` also opens in a pager and accepts inline actions: `h` for help, `e` to edit the note text in your `$EDITOR`, `q` to close.
 
 ## Configuration
 
@@ -69,7 +77,10 @@ That's it! No other configuration needed.
 - **Embeddings**: OpenAI text-embedding-3-small
 - **AI Tagging**: GPT-4 for automatic categorization
 - **Search**: Text matching + vector similarity with scikit-learn
+- **Catalog**: `data/catalog.json` keeps known categories/tags for reuse and GPT prompting
 - **CLI**: Lightweight command dispatcher (still installable via the `mindthread` script)
+- **Clipboard helper**: `clip` command uses the system clipboard (`pbpaste` on macOS)
+- **Analytics**: Sparkline stats (`stats`) and tag heatmap (`tags`) for quick at-a-glance context
 
 ## Example Workflow
 

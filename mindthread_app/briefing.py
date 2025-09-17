@@ -19,8 +19,9 @@ def get_agent_brief() -> str:
 
         Runtime layout:
         - mindthread_app/cli.py – command dispatch and user prompts
-        - mindthread_app/notes.py – core note CRUD, search, related computations
+        - mindthread_app/notes.py – core note CRUD, search, embedding utilities, link suggestions
         - mindthread_app/services/openai_service.py – GPT metadata + embedding helpers
+        - mindthread_app/catalog.py – tracks known categories/tags for reuse
         - mindthread_app/storage.py – JSON persistence utilities (notes live at {notes_location})
         - mindthread_app/config.py – dotenv-backed settings loader
 
@@ -30,8 +31,14 @@ def get_agent_brief() -> str:
         - add ["note"] – interactive or direct capture with GPT enrichment
         - list – render all notes
         - search "query" – substring match across text/title/tags
-        - show <id> – display full note
+        - show <id> – pager view with inline help/edit actions
         - related <id> – cosine-similarity suggestions using stored embeddings
+        - add (interactive) now offers AI-suggested links + category/tag selection from catalog
+        - stats – sparkline capture history and high-level counts
+        - tags [limit] – tag heatmap with ASCII bars
+        - catalog – review categories/tags, rename or remove tags inline
+        - clip – capture the current clipboard as a note (pbpaste required on macOS)
+        - list/search/stats/tags use a pager by default (pass --no-pager to disable)
         - remove <id> – delete note with confirmation prompt
         - agent-brief – print this orientation block
         - help – command recap

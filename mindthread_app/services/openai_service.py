@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Sequence
 
 import openai
 from openai import OpenAI, OpenAIError
@@ -47,27 +47,53 @@ def generate_embedding(text: str) -> List[float]:
     return response.data[0].embedding
 
 
-_METADATA_PROMPT = """
-Given this note, return JSON with:
-- title: Short descriptive title (max 5 words)
-- category: Single category name
-- tags: Array of 3-5 relevant tags
+def _build_metadata_prompt(text: str, categories: Sequence[str], tags: Sequence[str]) -> str:
+    sections = [
+        "You help organize personal notes.",
+        "Return JSON with keys: title, category, tags.",
+        "- title: Short descriptive title (max 5 words)",
+        "- category: Single category name",
+        "- tags: Array of 3-5 relevant tags",
+    ]
 
-Note: "{text}"
+    if categories:
+        sections.append(
+            "Existing categories (prefer one of these if it fits): "
+            + ", ".join(sorted(categories))
+        )
+    else:
+        sections.append("No existing categories yet. Introduce one that fits the note.")
 
-Return only JSON.
-"""
+    if tags:
+        sections.append(
+            "Existing tags (prefer reuse when appropriate): " + ", ".join(sorted(tags))
+        )
+    else:
+        sections.append("No existing tags yet. Introduce relevant tags.")
+
+    sections.append(f"Note: \"{text}\"")
+    sections.append("Return only JSON.")
+    return "\n".join(sections)
 
 
-def generate_metadata(text: str) -> Dict[str, Any]:
+def generate_metadata(
+    text: str,
+    existing_categories: Sequence[str] | None = None,
+    existing_tags: Sequence[str] | None = None,
+) -> Dict[str, Any]:
     """Generate title, category, and tags using GPT."""
 
     settings = get_settings()
     client = _get_client()
+    prompt = _build_metadata_prompt(
+        text,
+        existing_categories or [],
+        existing_tags or [],
+    )
     try:
         response = client.chat.completions.create(
             model=settings.gpt_model,
-            messages=[{"role": "user", "content": _METADATA_PROMPT.format(text=text)}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=200,
         )
