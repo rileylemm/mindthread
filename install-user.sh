@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$HOME/.local/bin"
 
 # Create symlink
-ln -sf "$SCRIPT_DIR/main.py" "$HOME/.local/bin/mindthread"
+ln -sf "$SCRIPT_DIR/mindthread" "$HOME/.local/bin/mindthread"
 chmod +x "$HOME/.local/bin/mindthread"
 
 echo "✅ Installed to $HOME/.local/bin/mindthread"

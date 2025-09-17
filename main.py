@@ -18,14 +18,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 load_dotenv()
 
 # Configuration
-NOTES_FILE = "notes.json"
+# Get the directory where this script is located (the mindthread project directory)
+SCRIPT_DIR = Path(__file__).parent.absolute()
+NOTES_FILE = SCRIPT_DIR / "notes.json"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMBEDDING_MODEL = "text-embedding-3-small"
 GPT_MODEL = "gpt-4"
 
 def load_notes():
     """Load notes from JSON file"""
-    if not Path(NOTES_FILE).exists():
+    if not NOTES_FILE.exists():
         return []
     with open(NOTES_FILE, 'r') as f:
         return json.load(f)
@@ -123,9 +125,19 @@ def add_note_interactive():
     print("\nGenerating embedding...")
     embedding = generate_embedding(text)
     
+    # Load existing notes to get proper ID
+    notes = load_notes()
+    
+    # Generate next ID by finding the highest existing ID + 1
+    if notes:
+        max_id = max(int(note['id']) for note in notes)
+        next_id = str(max_id + 1)
+    else:
+        next_id = "1"
+    
     # Create note
     note = {
-        "id": str(len(load_notes()) + 1),
+        "id": next_id,
         "text": text,
         "title": metadata["title"],
         "category": metadata["category"],
@@ -135,7 +147,6 @@ def add_note_interactive():
     }
     
     # Save
-    notes = load_notes()
     notes.append(note)
     save_notes(notes)
     
@@ -154,9 +165,19 @@ def add_note(text):
     # Generate embedding
     embedding = generate_embedding(text)
     
+    # Load existing notes to get proper ID
+    notes = load_notes()
+    
+    # Generate next ID by finding the highest existing ID + 1
+    if notes:
+        max_id = max(int(note['id']) for note in notes)
+        next_id = str(max_id + 1)
+    else:
+        next_id = "1"
+    
     # Create note
     note = {
-        "id": str(len(load_notes()) + 1),
+        "id": next_id,
         "text": text,
         "title": metadata["title"],
         "category": metadata["category"],
@@ -166,7 +187,6 @@ def add_note(text):
     }
     
     # Save
-    notes = load_notes()
     notes.append(note)
     save_notes(notes)
     

@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Create a symlink in /usr/local/bin (requires sudo)
 if [ -w "/usr/local/bin" ]; then
-    ln -sf "$SCRIPT_DIR/main.py" "/usr/local/bin/mindthread"
+    ln -sf "$SCRIPT_DIR/mindthread" "/usr/local/bin/mindthread"
     chmod +x "/usr/local/bin/mindthread"
     echo "✅ Installed to /usr/local/bin/mindthread"
 else

@@ -182,7 +182,7 @@ pip install -r requirements.txt
 cp env.example .env
 # Add your OpenAI API key to .env
 # Create symlink manually:
-ln -sf $(pwd)/main.py /usr/local/bin/mindthread
+ln -sf $(pwd)/mindthread /usr/local/bin/mindthread
 chmod +x /usr/local/bin/mindthread
 ```
 
