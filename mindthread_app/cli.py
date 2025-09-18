@@ -997,16 +997,27 @@ def _handle_eli5(args: Sequence[str]) -> int:
         print(f"❌ Failed to generate embedding for subject: {exc}")
         return 1
 
-    related_pairs = suggest_related_by_embedding(query_embedding, top_k=5)
+    related_pairs = suggest_related_by_embedding(query_embedding, top_k=8)
     high_similarity = [pair for pair in related_pairs if pair[1] >= 0.65]
-    context_notes = [pair[0] for pair in high_similarity[:3]]
+
+    manual_context = [pair for pair in high_similarity if pair[0].get("type", "note") == "note"]
+    context_notes = [pair[0] for pair in manual_context[:3]]
+
+    if not context_notes:
+        context_notes = [pair[0] for pair in high_similarity[:2]]
+
     related_ids = [note.get("id") for note in context_notes if note.get("id")]
+
+    combined_instructions = (
+        level_instructions
+        + " Treat the context notes as inspiration only—rephrase in fresh language, surface new angles, and avoid copying earlier explanations verbatim."
+    )
 
     try:
         explanation = generate_eli5_explanation(
             subject,
             level_label,
-            level_instructions,
+            combined_instructions,
             context_notes,
         )
     except AIServiceError as exc:
@@ -1068,7 +1079,7 @@ def _handle_eli5(args: Sequence[str]) -> int:
         followup_answer = generate_eli5_explanation(
             follow_up,
             level_label,
-            level_instructions,
+            combined_instructions,
             context_for_followup,
             previous_answer=explanation,
         )
