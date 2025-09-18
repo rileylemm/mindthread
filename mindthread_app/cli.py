@@ -896,6 +896,25 @@ def _handle_recap(args: Sequence[str]) -> int:
     return 0
 
 
+def _compose_context_summary(notes: Sequence[dict], subject: str) -> str:
+    if not notes:
+        return "No prior notes were supplied; respond from general knowledge."
+
+    lines = [
+        "Use these prior notes purely as inspiration. Do not copy their language:",
+    ]
+    for note in notes[:5]:
+        note_id = note.get("id", "?")
+        title = note.get("title", "Untitled")
+        ntype = note.get("type", "note")
+        category = note.get("category", "")
+        tags = ", ".join(note.get("tags", [])[:5])
+        lines.append(
+            f"- Note {note_id} [{ntype}] '{title}' (category {category}; tags: {tags})"
+        )
+    return "\n".join(lines)
+
+
 def _prompt_eli5_level() -> tuple[str, str, str] | None:
     try:
         from prompt_toolkit.application import Application as PTApplication
@@ -997,20 +1016,46 @@ def _handle_eli5(args: Sequence[str]) -> int:
         print(f"❌ Failed to generate embedding for subject: {exc}")
         return 1
 
-    related_pairs = suggest_related_by_embedding(query_embedding, top_k=8)
-    high_similarity = [pair for pair in related_pairs if pair[1] >= 0.65]
+    related_pairs = suggest_related_by_embedding(query_embedding, top_k=10)
+    high_similarity = [pair for pair in related_pairs if pair[1] >= 0.6]
 
-    manual_context = [pair for pair in high_similarity if pair[0].get("type", "note") == "note"]
-    context_notes = [pair[0] for pair in manual_context[:3]]
+    manual_context: list[dict] = []
+    for note, score in high_similarity:
+        if note.get("type", "note") == "note" and score >= 0.6:
+            manual_context.append(note)
+        if len(manual_context) >= 3:
+            break
 
-    if not context_notes:
-        context_notes = [pair[0] for pair in high_similarity[:2]]
+    context_notes = manual_context
+
+    if len(context_notes) < 2:
+        supplemental = []
+        for note, score in high_similarity:
+            if note in context_notes:
+                continue
+            if score >= 0.7:
+                supplemental.append(note)
+            if len(supplemental) >= 2:
+                break
+        context_notes.extend(supplemental[: 2 - len(context_notes)])
+
+    # deduplicate while preserving order
+    seen_ids = set()
+    unique_context = []
+    for note in context_notes:
+        note_id = note.get("id")
+        if note_id and note_id not in seen_ids:
+            seen_ids.add(note_id)
+            unique_context.append(note)
+    context_notes = unique_context
 
     related_ids = [note.get("id") for note in context_notes if note.get("id")]
 
+    context_summary = _compose_context_summary(context_notes, subject)
+
     combined_instructions = (
         level_instructions
-        + " Treat the context notes as inspiration only—rephrase in fresh language, surface new angles, and avoid copying earlier explanations verbatim."
+        + " Treat the context overview as inspiration only—rephrase in fresh language, surface new angles, and avoid copying earlier explanations verbatim."
     )
 
     try:
@@ -1018,7 +1063,7 @@ def _handle_eli5(args: Sequence[str]) -> int:
             subject,
             level_label,
             combined_instructions,
-            context_notes,
+            context_summary,
         )
     except AIServiceError as exc:
         print(f"❌ Failed to generate explanation: {exc}")
@@ -1075,12 +1120,13 @@ def _handle_eli5(args: Sequence[str]) -> int:
         return 0
 
     context_for_followup = context_notes + [note]
+    followup_context_summary = _compose_context_summary(context_for_followup, follow_up)
     try:
         followup_answer = generate_eli5_explanation(
             follow_up,
             level_label,
             combined_instructions,
-            context_for_followup,
+            followup_context_summary,
             previous_answer=explanation,
         )
     except AIServiceError as exc:

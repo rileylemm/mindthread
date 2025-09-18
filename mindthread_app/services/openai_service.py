@@ -181,7 +181,7 @@ def generate_eli5_explanation(
     subject: str,
     level_label: str,
     level_instructions: str,
-    notes: Sequence[Dict[str, Any]],
+    context_summary: str,
     previous_answer: str | None = None,
 ) -> str:
     """Generate an explanation tailored to a specific audience level."""
@@ -189,25 +189,13 @@ def generate_eli5_explanation(
     settings = get_settings()
     client = _get_client()
 
-    note_blocks: List[str] = []
-    for note in notes:
-        block = (
-            f"ID: {note.get('id')}\n"
-            f"Title: {note.get('title')}\n"
-            f"Category: {note.get('category', '')}\n"
-            f"Tags: {', '.join(note.get('tags', []))}\n"
-            f"Text: {note.get('text', '')}"
-        )
-        note_blocks.append(block)
-
-    context = "\n\n".join(note_blocks) if note_blocks else "(No related notes found.)"
-
     user_content = (
         f"Explain the following request: {subject}\n\n"
         f"Audience: {level_label}\n"
         f"Guidelines: {level_instructions}\n"
-        "Important: Do NOT reuse sentences or phrases from the context. Invent new metaphors and wording."
-        " Reference note IDs when relevant.\n\n"
+        "Important: Do NOT reuse sentences or phrases from prior notes. Invent new metaphors and wording."
+        " Highlight differences from earlier explanations when appropriate."
+        " Reference note IDs only when it adds value.\n\n"
     )
 
     if previous_answer:
@@ -217,7 +205,7 @@ def generate_eli5_explanation(
             f"Original explanation:\n{previous_answer}\n\n"
         )
 
-    user_content += f"Context notes:\n{context}"
+    user_content += f"Context overview:\n{context_summary}"
 
     try:
         response = client.chat.completions.create(
@@ -232,7 +220,7 @@ def generate_eli5_explanation(
                 },
                 {"role": "user", "content": user_content},
             ],
-            temperature=0.7,
+            temperature=0.8,
             max_tokens=600,
         )
     except OpenAIError as exc:
