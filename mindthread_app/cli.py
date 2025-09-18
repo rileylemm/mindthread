@@ -1351,7 +1351,6 @@ def _handle_chat(args: Sequence[str]) -> int:
     catalog = load_catalog()
     metadata = {
         "title": f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        "category": "Conversation",
         "tags": ["auto", "convo", f"model:{model_name}"],
         "type": "convo",
     }
