@@ -47,6 +47,7 @@ from .services.openai_service import (
     generate_metadata,
     generate_recap_summary,
     generate_eli5_explanation,
+    generate_chat_reply,
 )
 
 
