@@ -182,6 +182,7 @@ def generate_eli5_explanation(
     level_label: str,
     level_instructions: str,
     notes: Sequence[Dict[str, Any]],
+    previous_answer: str | None = None,
 ) -> str:
     """Generate an explanation tailored to a specific audience level."""
 
@@ -206,8 +207,16 @@ def generate_eli5_explanation(
         f"Audience: {level_label}\n"
         f"Guidelines: {level_instructions}\n"
         "Reference note IDs when relevant.\n\n"
-        f"Context notes:\n{context}"
     )
+
+    if previous_answer:
+        user_content += (
+            "Here is the original explanation you already provided. Build upon it when relevant, "
+            "clarify further, and answer the follow-up specifically.\n"
+            f"Original explanation:\n{previous_answer}\n\n"
+        )
+
+    user_content += f"Context notes:\n{context}"
 
     try:
         response = client.chat.completions.create(

@@ -47,10 +47,6 @@ from .services.openai_service import (
     generate_recap_summary,
     generate_eli5_explanation,
 )
-try:  # prompt_toolkit optional for eli5 level selection
-    from prompt_toolkit.shortcuts import radiolist_dialog
-except ImportError:  # pragma: no cover - fallback when prompt_toolkit absent
-    radiolist_dialog = None
 
 
 def _require_api_key() -> bool:
@@ -901,32 +897,85 @@ def _handle_recap(args: Sequence[str]) -> int:
 
 
 def _prompt_eli5_level() -> tuple[str, str, str] | None:
-    if radiolist_dialog is not None:
-        values = [(key, label) for key, label, _ in ELI5_LEVELS]
-        result = radiolist_dialog(
-            title="Explanation Level",
-            text="Choose how you want it explained:",
-            values=values,
-        ).run()
-        if result is None:
+    try:
+        from prompt_toolkit.application import Application as PTApplication
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.layout import Layout
+        from prompt_toolkit.layout.containers import HSplit, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+        from prompt_toolkit.styles import Style
+    except ImportError:
+        print("Select explanation level:")
+        for index, (_, label, _) in enumerate(ELI5_LEVELS, start=1):
+            print(f"  {index}. {label}")
+        response = input("Enter number (blank to cancel): ").strip()
+        if not response:
             return None
-        for level in ELI5_LEVELS:
-            if level[0] == result:
-                return level
+        if response.isdigit():
+            idx = int(response) - 1
+            if 0 <= idx < len(ELI5_LEVELS):
+                return ELI5_LEVELS[idx]
+        print("Invalid selection.")
         return None
 
-    print("Select explanation level:")
-    for index, (_, label, _) in enumerate(ELI5_LEVELS, start=1):
-        print(f"  {index}. {label}")
-    response = input("Enter number (blank to cancel): ").strip()
-    if not response:
-        return None
-    if response.isdigit():
-        idx = int(response) - 1
-        if 0 <= idx < len(ELI5_LEVELS):
-            return ELI5_LEVELS[idx]
-    print("Invalid selection.")
-    return None
+    selected = {"index": 0, "result": None}
+
+    def _render() -> list[tuple[str, str]]:
+        fragments: list[tuple[str, str]] = []
+        for idx, (_, label, _) in enumerate(ELI5_LEVELS):
+            if idx == selected["index"]:
+                fragments.append(("class:option.selected", f"➤ {label}\n"))
+            else:
+                fragments.append(("class:option", f"  {label}\n"))
+        fragments.append(("class:hint", "Use j/k or ↑/↓ to move · Enter select · Esc cancel"))
+        return fragments
+
+    control = FormattedTextControl(_render, focusable=True, show_cursor=False)
+    window = Window(content=control, always_hide_cursor=True)
+    body = HSplit([window])
+
+    kb = KeyBindings()
+
+    @kb.add("down")
+    @kb.add("j")
+    def _(event) -> None:  # pragma: no cover - UI hook
+        selected["index"] = (selected["index"] + 1) % len(ELI5_LEVELS)
+        event.app.invalidate()
+
+    @kb.add("up")
+    @kb.add("k")
+    def _(event) -> None:  # pragma: no cover - UI hook
+        selected["index"] = (selected["index"] - 1) % len(ELI5_LEVELS)
+        event.app.invalidate()
+
+    @kb.add("enter")
+    def _(event) -> None:  # pragma: no cover - UI hook
+        selected["result"] = ELI5_LEVELS[selected["index"]]
+        event.app.exit()
+
+    @kb.add("escape")
+    def _(event) -> None:  # pragma: no cover - UI hook
+        selected["result"] = None
+        event.app.exit()
+
+    style = Style.from_dict(
+        {
+            "": "bg:#0b1120",
+            "option": "#a5b4fc",
+            "option.selected": "bold #0b1120 on #38bdf8",
+            "hint": "#94a3b8",
+        }
+    )
+
+    app = PTApplication(
+        layout=Layout(body, focused_element=window),
+        key_bindings=kb,
+        style=style,
+        full_screen=True,
+    )
+    app.run()  # pragma: no cover - UI hook
+
+    return selected["result"]
 
 
 def _handle_eli5(args: Sequence[str]) -> int:
@@ -1009,4 +1058,67 @@ def _handle_eli5(args: Sequence[str]) -> int:
     save_catalog(catalog)
 
     print(f"✅ Eli5 note saved with ID {note['id']}.")
+
+    follow_up = input("\nAsk a follow-up question (press Enter to skip): ").strip()
+    if not follow_up:
+        return 0
+
+    context_for_followup = context_notes + [note]
+    try:
+        followup_answer = generate_eli5_explanation(
+            follow_up,
+            level_label,
+            level_instructions,
+            context_for_followup,
+            previous_answer=explanation,
+        )
+    except AIServiceError as exc:
+        print(f"❌ Failed to generate follow-up: {exc}")
+        return 1
+
+    print("\nFollow-up\n" + "=" * 60)
+    print(followup_answer)
+    print("=" * 60)
+
+    confirm_follow = input("Save this follow-up as a note? (y/N): ").strip().lower()
+    if confirm_follow != "y":
+        print("❌ Follow-up discarded.")
+        return 0
+
+    try:
+        followup_embedding = generate_embedding(followup_answer)
+    except AIServiceError as exc:
+        print(f"❌ Failed to embed follow-up: {exc}")
+        return 1
+
+    metadata_follow = generate_metadata(followup_answer, catalog.categories, catalog.tags)
+    metadata_follow = _apply_catalog_defaults(metadata_follow, catalog)
+    _display_metadata(metadata_follow, catalog)
+
+    while True:
+        choice = input("\nConfirm follow-up metadata? (y/n/edit): ").strip().lower()
+        if choice == "y":
+            break
+        if choice == "n":
+            print("❌ Follow-up not saved.")
+            return 0
+        if choice == "edit":
+            metadata_follow = _edit_metadata(metadata_follow, catalog)
+            _display_metadata(metadata_follow, catalog)
+            continue
+        print("Please enter 'y', 'n', or 'edit'.")
+
+    follow_tags = metadata_follow.get("tags", [])
+    follow_tags.extend(["auto", "eli5", "eli5-followup", f"eli5-level:{level_key}"])
+    metadata_follow["tags"] = sorted({tag.strip() for tag in follow_tags if tag.strip()})
+    metadata_follow["type"] = "eli5"
+
+    follow_related_ids = sorted({*(related_ids or []), note["id"]})
+    follow_note = build_note(followup_answer, metadata_follow, followup_embedding, related_ids=follow_related_ids)
+    persist_note(follow_note, follow_related_ids)
+    catalog.add_category(follow_note["category"])
+    catalog.add_tags(metadata_follow["tags"])
+    save_catalog(catalog)
+
+    print(f"✅ Follow-up note saved with ID {follow_note['id']}.")
     return 0
