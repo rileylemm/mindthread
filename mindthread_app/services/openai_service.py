@@ -206,7 +206,8 @@ def generate_eli5_explanation(
         f"Explain the following request: {subject}\n\n"
         f"Audience: {level_label}\n"
         f"Guidelines: {level_instructions}\n"
-        "Reference note IDs when relevant.\n\n"
+        "Important: Do NOT reuse sentences or phrases from the context. Invent new metaphors and wording."
+        " Reference note IDs when relevant.\n\n"
     )
 
     if previous_answer:
@@ -231,7 +232,7 @@ def generate_eli5_explanation(
                 },
                 {"role": "user", "content": user_content},
             ],
-            temperature=0.5,
+            temperature=0.7,
             max_tokens=600,
         )
     except OpenAIError as exc:
