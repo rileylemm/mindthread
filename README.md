@@ -46,6 +46,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `related <id>` | Find related thoughts using AI embeddings |
 | `stats` | Show note stats and sparkline history |
 | `tags [limit]` | Display tag frequency heatmap |
+| `ui` | Launch the optional prompt-toolkit TUI |
 | `agent-brief` | Print an instant project orientation for AI agents |
 | `catalog` | Review categories/tags and tidy the catalog |
 | `clip` | Save current clipboard contents as a note |
@@ -54,6 +55,8 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 Outputs for `list`, `search`, `stats`, and `tags` open in a pager by default. Add `--no-pager` to any of them to print directly.
 
 `show <id>` also opens in a pager and accepts inline actions: `h` for help, `e` to edit the note text in your `$EDITOR`, `q` to close.
+
+Launch the optional TUI with `mindthread ui`. It uses `prompt_toolkit`, keeps the tactile CLI vibe, and works on Python 3.13.
 
 ## Configuration
 
@@ -73,6 +76,9 @@ That's it! No other configuration needed.
   - `services/openai_service.py` – GPT metadata + embedding helpers with error handling
   - `storage.py` – JSON persistence (respects `DATA_DIR` and the legacy `notes.json` fallback)
   - `config.py` – dotenv-backed settings loader
+  - `editor.py` – shared `$EDITOR` launcher for text edits
+  - `analytics.py` – sparkline + heatmap render helpers
+  - `promptui/` – prompt_toolkit-based optional interface (`run_ui`)
 - **Storage**: JSON file (defaults to `notes.json`, or `<DATA_DIR>/notes.json` if configured)
 - **Embeddings**: OpenAI text-embedding-3-small
 - **AI Tagging**: GPT-4 for automatic categorization

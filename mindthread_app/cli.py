@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from typing import Iterable, Sequence, Tuple
 
 from pydoc import pager
@@ -14,6 +11,8 @@ from pydoc import pager
 from .briefing import get_agent_brief
 from .catalog import Catalog, load_catalog, save_catalog
 from .config import get_settings
+from .editor import launch_editor
+from .analytics import render_sparkline, format_tag_heatmap
 from .notes import (
     AIServiceError,
     auto_enrich_note,
@@ -296,6 +295,7 @@ def _print_help() -> None:
     print("  clip                - Save current clipboard as a note")
     print("  agent-brief         - Print architecture overview for agents")
     print("  catalog             - Review and tidy categories/tags")
+    print("  ui                  - Launch the prompt_toolkit interface")
     print("  help                - Show this help message")
 
 
@@ -351,6 +351,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if command == "tags":
         return _handle_tags(rest)
+
+    if command == "ui":
+        try:
+            from .promptui import run_ui
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            print("❌ prompt_toolkit is not installed.")
+            print("   Install it with `pip install prompt_toolkit` to enable the UI.")
+            return 1
+        try:
+            run_ui()
+        except Exception as exc:  # pragma: no cover - defensive guard
+            print("❌ Failed to launch the UI:", exc)
+            return 1
+        return 0
 
     print(f"Unknown command: {command}")
     print("Use 'mindthread help' to see available commands")
@@ -492,33 +506,11 @@ def _render_note_detail(note: dict) -> str:
     return "\n".join(lines)
 
 
-def _launch_editor(initial_text: str) -> str | None:
-    editor = os.environ.get("EDITOR")
-    fallback = shutil.which("nano") or shutil.which("vi") or shutil.which("vim")
-    command = editor or fallback
-    if not command:
-        print("❌ No editor found. Set the EDITOR environment variable.")
-        return None
-
-    with tempfile.NamedTemporaryFile("w+", delete=False) as tmp:
-        tmp.write(initial_text)
-        tmp_path = tmp.name
-
-    try:
-        subprocess.run([command, tmp_path], check=False)
-        with open(tmp_path, "r", encoding="utf-8") as handle:
-            return handle.read()
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-
-
 def _handle_note_edit(note: dict) -> bool:
     current_text = note.get("text", "")
-    edited = _launch_editor(current_text)
+    edited = launch_editor(current_text)
     if edited is None:
+        print("❌ No editor available or edit cancelled.")
         return False
 
     if edited == current_text:
@@ -540,16 +532,6 @@ def _handle_note_edit(note: dict) -> bool:
     return True
 
 
-def _render_sparkline(counts: Sequence[int]) -> str:
-    if not counts:
-        return "(no data)"
-    symbols = " .:-=+*#"
-    max_count = max(counts)
-    if max_count == 0:
-        return "".join(symbols[1] for _ in counts)
-    return "".join(symbols[int((count / max_count) * (len(symbols) - 1))] for count in counts)
-
-
 def _handle_stats(args: Sequence[str]) -> int:
     disable_pager, remaining = _extract_flag(args, "--no-pager")
     use_pager = not disable_pager
@@ -569,7 +551,7 @@ def _handle_stats(args: Sequence[str]) -> int:
 
     history = note_counts_by_day(limit or 14)
     spark_counts = [count for _, count in history]
-    spark = _render_sparkline(spark_counts)
+    spark = render_sparkline(spark_counts)
     labels = " ".join(date[5:] for date, _ in history)
 
     lines = [
@@ -589,8 +571,8 @@ def _handle_stats(args: Sequence[str]) -> int:
     if freq:
         lines.append("")
         lines.append("Top tags:")
-        for tag, count in freq:
-            lines.append(f"  {tag}: {count}")
+        for row in format_tag_heatmap(freq, max_width=18):
+            lines.append(f"  {row}")
 
     _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
     return 0
@@ -611,15 +593,9 @@ def _handle_tags(args: Sequence[str]) -> int:
     if limit:
         freq = freq[:limit]
 
-    max_count = freq[0][1]
-    bar_width = 24
-
     lines = ["🏷️ Tag heatmap", "=" * 40]
-    for tag, count in freq:
-        scale = count / max_count if max_count else 0
-        bar_len = max(1, int(scale * bar_width))
-        bar = "#" * bar_len
-        lines.append(f"{tag:<20} {bar} ({count})")
+    for row in format_tag_heatmap(freq, max_width=24):
+        lines.append(row)
 
     _maybe_page("\n".join(lines), use_pager, allow_disable=False if use_pager else True)
     return 0

@@ -38,6 +38,7 @@ def get_agent_brief() -> str:
         - tags [limit] – tag heatmap with ASCII bars
         - catalog – review categories/tags, rename or remove tags inline
         - clip – capture the current clipboard as a note (pbpaste required on macOS)
+        - ui – launch the optional prompt_toolkit interface (note list + detail panes)
         - list/search/stats/tags use a pager by default (pass --no-pager to disable)
         - remove <id> – delete note with confirmation prompt
         - agent-brief – print this orientation block
