@@ -1107,7 +1107,10 @@ def _handle_eli5(args: Sequence[str]) -> int:
     metadata["tags"] = sorted({tag.strip() for tag in tags if tag.strip()})
     metadata["type"] = "eli5"
 
-    note = build_note(explanation, metadata, embedding, related_ids=related_ids)
+    explanation_with_prompt = (
+        "Question: " + subject + "\n\nExplanation:\n" + explanation
+    )
+    note = build_note(explanation_with_prompt, metadata, embedding, related_ids=related_ids)
     persist_note(note, related_ids)
     catalog.add_category(note["category"])
     catalog.add_tags(metadata["tags"])  # keep catalog updated with new tags
@@ -1171,7 +1174,16 @@ def _handle_eli5(args: Sequence[str]) -> int:
     metadata_follow["type"] = "eli5"
 
     follow_related_ids = sorted({*(related_ids or []), note["id"]})
-    follow_note = build_note(followup_answer, metadata_follow, followup_embedding, related_ids=follow_related_ids)
+    followup_with_prompt = (
+        "Question: " + follow_up + "\n\nExplanation:\n" + followup_answer
+    )
+
+    follow_note = build_note(
+        followup_with_prompt,
+        metadata_follow,
+        followup_embedding,
+        related_ids=follow_related_ids,
+    )
     persist_note(follow_note, follow_related_ids)
     catalog.add_category(follow_note["category"])
     catalog.add_tags(metadata_follow["tags"])
