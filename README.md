@@ -44,6 +44,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail (pager + inline actions) |
 | `related <id>` | Find related thoughts using AI embeddings |
+| `chat` | Start an interactive conversation that references your notes |
 | `eli5` | Get an explanation tuned to a chosen audience level |
 | `recap [--days N]` | Generate and save a recap over recent notes |
 | `stats` | Show note stats and sparkline history |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -309,6 +310,7 @@ def _print_help() -> None:
     print("  show <id>           - Show specific note")
     print("  related <id>        - Find related thoughts using AI embeddings")
     print("  remove <id>         - Remove a note by ID")
+    print("  chat                - Start a conversational session with note-aware context")
     print("  eli5               - Ask for an explanation at a chosen level")
     print("  recap [--days N]    - Generate a recap across recent notes")
     print("  stats               - Show note stats and sparkline history")
@@ -353,6 +355,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if command == "remove":
         return _handle_remove(rest)
+
+    if command == "chat":
+        return _handle_chat(rest)
 
     if command == "eli5":
         return _handle_eli5(rest)
@@ -848,6 +853,25 @@ def _parse_days_argument(args: Sequence[str]) -> tuple[int, list[str]]:
     return days, remaining
 
 
+def _parse_model_argument(args: Sequence[str]) -> tuple[str | None, list[str]]:
+    model: str | None = None
+    remaining: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--model="):
+            model = arg.split("=", 1)[1].strip()
+            i += 1
+            continue
+        if arg == "--model" and i + 1 < len(args):
+            model = args[i + 1].strip()
+            i += 2
+            continue
+        remaining.append(arg)
+        i += 1
+    return model, remaining
+
+
 def _handle_recap(args: Sequence[str]) -> int:
     days, _ = _parse_days_argument(args)
     notes = notes_since(days)
@@ -913,6 +937,67 @@ def _compose_context_summary(notes: Sequence[dict], subject: str) -> str:
             f"- Note {note_id} [{ntype}] '{title}' (category {category}; tags: {tags})"
         )
     return "\n".join(lines)
+
+
+def _compose_conversation_note_text(
+    context_summary: str,
+    history: Sequence[tuple[str, str, str]],
+    model_name: str,
+) -> str:
+    lines = [
+        "Context Overview:",
+        context_summary if context_summary else "(None)",
+        "",
+        f"Model: {model_name}",
+        "",
+        "Transcript:",
+    ]
+
+    for timestamp, role, content in history:
+        label = "You" if role == "user" else "Assistant"
+        lines.append(f"[{timestamp}] {label}: {content}")
+
+    return "\n".join(lines)
+
+
+def _select_context_notes(
+    embedding: Sequence[float],
+    manual_threshold: float = 0.6,
+    manual_limit: int = 3,
+    fallback_threshold: float = 0.7,
+    fallback_limit: int = 2,
+) -> list[dict]:
+    related_pairs = suggest_related_by_embedding(embedding, top_k=10)
+    high_similarity = [pair for pair in related_pairs if pair[1] >= manual_threshold]
+
+    manual_context: list[dict] = []
+    for note, score in high_similarity:
+        if note.get("type", "note") == "note" and score >= manual_threshold:
+            manual_context.append(note)
+        if len(manual_context) >= manual_limit:
+            break
+
+    context_notes = manual_context
+
+    if len(context_notes) < manual_limit:
+        supplemental: list[dict] = []
+        for note, score in related_pairs:
+            if note in context_notes:
+                continue
+            if score >= fallback_threshold:
+                supplemental.append(note)
+            if len(supplemental) >= fallback_limit:
+                break
+        context_notes.extend(supplemental[: manual_limit - len(context_notes)])
+
+    seen_ids = set()
+    unique_context: list[dict] = []
+    for note in context_notes:
+        note_id = note.get("id")
+        if note_id and note_id not in seen_ids:
+            seen_ids.add(note_id)
+            unique_context.append(note)
+    return unique_context
 
 
 def _prompt_eli5_level() -> tuple[str, str, str] | None:
@@ -1016,39 +1101,7 @@ def _handle_eli5(args: Sequence[str]) -> int:
         print(f"❌ Failed to generate embedding for subject: {exc}")
         return 1
 
-    related_pairs = suggest_related_by_embedding(query_embedding, top_k=10)
-    high_similarity = [pair for pair in related_pairs if pair[1] >= 0.6]
-
-    manual_context: list[dict] = []
-    for note, score in high_similarity:
-        if note.get("type", "note") == "note" and score >= 0.6:
-            manual_context.append(note)
-        if len(manual_context) >= 3:
-            break
-
-    context_notes = manual_context
-
-    if len(context_notes) < 2:
-        supplemental = []
-        for note, score in high_similarity:
-            if note in context_notes:
-                continue
-            if score >= 0.7:
-                supplemental.append(note)
-            if len(supplemental) >= 2:
-                break
-        context_notes.extend(supplemental[: 2 - len(context_notes)])
-
-    # deduplicate while preserving order
-    seen_ids = set()
-    unique_context = []
-    for note in context_notes:
-        note_id = note.get("id")
-        if note_id and note_id not in seen_ids:
-            seen_ids.add(note_id)
-            unique_context.append(note)
-    context_notes = unique_context
-
+    context_notes = _select_context_notes(query_embedding)
     related_ids = [note.get("id") for note in context_notes if note.get("id")]
 
     context_summary = _compose_context_summary(context_notes, subject)
@@ -1190,4 +1243,129 @@ def _handle_eli5(args: Sequence[str]) -> int:
     save_catalog(catalog)
 
     print(f"✅ Follow-up note saved with ID {follow_note['id']}.")
+    return 0
+
+
+def _handle_chat(args: Sequence[str]) -> int:
+    model_arg, _ = _parse_model_argument(args)
+    model_name = model_arg or os.getenv("MINDTHREAD_CHAT_MODEL") or "gpt-4o-mini"
+
+    print("Starting conversation. Press Enter on an empty line to finish, or type :q to abort.")
+    first_message = input("You: ").strip()
+    if not first_message or first_message == ":q":
+        print("❌ Conversation cancelled.")
+        return 1
+
+    try:
+        query_embedding = generate_embedding(first_message)
+    except AIServiceError as exc:
+        print(f"❌ Failed to prepare conversation context: {exc}")
+        return 1
+
+    context_notes = _select_context_notes(query_embedding, manual_limit=4, fallback_limit=2)
+    related_ids = [note.get("id") for note in context_notes if note.get("id")]
+    context_summary = _compose_context_summary(context_notes, first_message)
+
+    system_prompt = (
+        "You are a collaborative partner that references the user's note context when helpful. "
+        "Offer thoughtful insights, ask clarifying questions when needed, and cite note IDs only when they add value."
+    )
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": f"Context overview:\n{context_summary}"},
+        {"role": "user", "content": first_message},
+    ]
+
+    history: list[tuple[str, str, str]] = []
+    history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "user", first_message))
+
+    try:
+        assistant_reply = generate_chat_reply(messages, model=model_name)
+    except AIServiceError as exc:
+        print(f"❌ Failed to generate reply: {exc}")
+        return 1
+
+    print("\nAssistant\n" + "=" * 60)
+    print(assistant_reply)
+    print("=" * 60)
+
+    messages.append({"role": "assistant", "content": assistant_reply})
+    history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "assistant", assistant_reply))
+
+    while True:
+        user_input = input("You (blank to finish, :q to abort): ").strip()
+        if user_input in (":q", ":quit"):
+            print("❌ Conversation aborted.")
+            return 0
+        if not user_input:
+            break
+
+        history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "user", user_input))
+        messages.append({"role": "user", "content": user_input})
+
+        try:
+            assistant_reply = generate_chat_reply(messages, model=model_name)
+        except AIServiceError as exc:
+            print(f"❌ Failed to generate reply: {exc}")
+            history.pop()
+            messages.pop()
+            return 1
+
+        print("\nAssistant\n" + "=" * 60)
+        print(assistant_reply)
+        print("=" * 60)
+
+        messages.append({"role": "assistant", "content": assistant_reply})
+        history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "assistant", assistant_reply))
+
+    assistant_turns = [entry for entry in history if entry[1] == "assistant"]
+    if not assistant_turns:
+        print("❌ No conversation recorded.")
+        return 0
+
+    save = input("Save this conversation as a note? (y/N): ").strip().lower()
+    if save != "y":
+        print("Conversation discarded.")
+        return 0
+
+    conversation_text = _compose_conversation_note_text(context_summary, history, model_name)
+
+    try:
+        embedding = generate_embedding(conversation_text)
+    except AIServiceError as exc:
+        print(f"❌ Failed to embed conversation: {exc}")
+        return 1
+
+    catalog = load_catalog()
+    metadata = {
+        "title": f"Conversation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "category": "Conversation",
+        "tags": ["auto", "convo", f"model:{model_name}"],
+        "type": "convo",
+    }
+
+    metadata = _apply_catalog_defaults(metadata, catalog)
+    _display_metadata(metadata, catalog)
+
+    while True:
+        choice = input("\nConfirm metadata? (y/n/edit): ").strip().lower()
+        if choice == "y":
+            break
+        if choice == "n":
+            print("❌ Conversation not saved.")
+            return 0
+        if choice == "edit":
+            metadata = _edit_metadata(metadata, catalog)
+            _display_metadata(metadata, catalog)
+            continue
+        print("Please enter 'y', 'n', or 'edit'.")
+
+    note = build_note(conversation_text, metadata, embedding, related_ids=related_ids)
+    persist_note(note, related_ids)
+    catalog.add_category(note["category"])
+    catalog.add_tags(metadata["tags"])
+    save_catalog(catalog)
+
+    print(f"✅ Conversation saved with ID {note['id']}.")
     return 0

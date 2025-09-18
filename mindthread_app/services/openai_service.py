@@ -239,4 +239,31 @@ __all__ = [
     "generate_metadata",
     "generate_recap_summary",
     "generate_eli5_explanation",
+    "generate_chat_reply",
 ]
+
+
+def generate_chat_reply(
+    messages: Sequence[Dict[str, str]],
+    model: str | None = None,
+    temperature: float = 0.7,
+) -> str:
+    """Generate a conversational reply using chat completions."""
+
+    settings = get_settings()
+    client = _get_client()
+    try:
+        response = client.chat.completions.create(
+            model=model or settings.gpt_model,
+            messages=list(messages),
+            temperature=temperature,
+            max_tokens=600,
+        )
+    except OpenAIError as exc:
+        raise AIServiceError("Failed to generate chat reply") from exc
+
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise AIServiceError("OpenAI chat response did not contain choices")
+
+    return choices[0].message.content.strip()
