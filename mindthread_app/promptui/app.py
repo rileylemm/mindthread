@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+from pydoc import pager
+
 from prompt_toolkit import Application
 from prompt_toolkit.application import get_app, run_in_terminal
 from prompt_toolkit.formatted_text import FormattedText
@@ -49,7 +51,7 @@ class MindthreadPromptUI:
     def __init__(self) -> None:
         self.selection = NoteSelection(notes=list_all_notes())
         self.notes_by_id = {note["id"]: note for note in self.selection.notes}
-        self.help_text = "j/k: move · /: search · c: clear · e: edit · r: refresh · q: quit"
+        self.help_text = "j/k: move · /: search · c: clear · e: edit · v: view · r: refresh · q: quit"
 
         self.list_control = FormattedTextControl(self._render_note_list, focusable=True, show_cursor=False)
         self.detail_area = TextArea(style="class:detail", read_only=True, scrollbar=True, wrap_lines=True)
@@ -119,6 +121,10 @@ class MindthreadPromptUI:
         def _(event) -> None:
             self._edit_current_note()
 
+        @kb.add("v")
+        def _(event) -> None:
+            self._view_current_note()
+
         @kb.add("r")
         def _(event) -> None:
             self._reload_notes()
@@ -160,31 +166,7 @@ class MindthreadPromptUI:
             self.detail_area.text = "No notes available."
             return
 
-        lines = [
-            f"Title   : {note['title']}",
-            f"Category: {note.get('category', '')}",
-            f"Tags    : {', '.join(note.get('tags', [])) or '—'}",
-            f"Created : {note.get('created_at', '')}",
-        ]
-        if note.get("updated_at"):
-            lines.append(f"Updated : {note['updated_at']}")
-        if note.get("related_ids"):
-            lines.append(f"Links   : {', '.join(note['related_ids'])}")
-        lines.append("\n" + note.get("text", ""))
-
-        history = note_counts_by_day(NOTE_HISTORY_DAYS)
-        spark_counts = [count for _, count in history]
-        labels = " ".join(date[5:] for date, _ in history)
-        spark = render_sparkline(spark_counts)
-        top_tags = list(format_tag_heatmap(tag_frequency()[:TOP_TAGS], max_width=18))
-
-        analytic_lines = ["", f"History ({len(history)}d):", f"  {labels}" if labels else "  (no history)", f"  {spark}"]
-        if top_tags:
-            analytic_lines.append("")
-            analytic_lines.append("Top tags:")
-            analytic_lines.extend(f"  {line}" for line in top_tags)
-
-        self.detail_area.text = "\n".join(lines + analytic_lines)
+        self.detail_area.text = self._compose_detail_text(note, include_analytics=True)
 
     def _reload_notes(self, keep_focus: bool = True) -> None:
         previous_id = self.selection.current()["id"] if keep_focus and self.selection.current() else None
@@ -254,6 +236,64 @@ class MindthreadPromptUI:
         self._reload_notes(keep_focus=True)
         self.help_text = "Note saved"
         self._invalidate()
+
+    def _view_current_note(self) -> None:
+        note = self.selection.current()
+        if not note:
+            return
+
+        text = self._compose_detail_text(note, include_analytics=False)
+
+        def _viewer() -> None:
+            pager(text)
+
+        run_in_terminal(_viewer)
+
+        def _ask_edit() -> None:
+            try:
+                response = input("Open note in editor? (y/N): ").strip().lower()
+            except EOFError:
+                response = ""
+            if response == "y":
+                self._edit_current_note()
+
+        run_in_terminal(_ask_edit)
+
+    def _compose_detail_text(self, note: dict) -> str:
+        return self._compose_detail_text(note, include_analytics=True)
+
+    def _compose_detail_text(self, note: dict, *, include_analytics: bool) -> str:  # type: ignore[override]
+        lines = [
+            f"Title   : {note['title']}",
+            f"Category: {note.get('category', '')}",
+            f"Tags    : {', '.join(note.get('tags', [])) or '—'}",
+            f"Created : {note.get('created_at', '')}",
+        ]
+        if note.get("updated_at"):
+            lines.append(f"Updated : {note['updated_at']}")
+        if note.get("related_ids"):
+            lines.append(f"Links   : {', '.join(note['related_ids'])}")
+        lines.append("\n" + note.get("text", ""))
+        if include_analytics:
+            history = note_counts_by_day(NOTE_HISTORY_DAYS)
+            spark_counts = [count for _, count in history]
+            labels = " ".join(date[5:] for date, _ in history)
+            spark = render_sparkline(spark_counts)
+            top_tags = list(format_tag_heatmap(tag_frequency()[:TOP_TAGS], max_width=18))
+
+            analytic_lines = [
+                "",
+                f"History ({len(history)}d):",
+                f"  {labels}" if labels else "  (no history)",
+                f"  {spark}",
+            ]
+            if top_tags:
+                analytic_lines.append("")
+                analytic_lines.append("Top tags:")
+                analytic_lines.extend(f"  {line}" for line in top_tags)
+            lines.extend(analytic_lines)
+
+        return "\n".join(lines)
 
     def _invalidate(self) -> None:
         if hasattr(self, "app"):
