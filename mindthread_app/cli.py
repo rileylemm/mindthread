@@ -961,9 +961,9 @@ def _prompt_eli5_level() -> tuple[str, str, str] | None:
     style = Style.from_dict(
         {
             "": "bg:#0b1120",
-            "option": "#a5b4fc",
-            "option.selected": "bold #0b1120 on #38bdf8",
-            "hint": "#94a3b8",
+            "option": "fg:#a5b4fc bg:#0b1120",
+            "option.selected": "fg:#0b1120 bg:#38bdf8 bold",
+            "hint": "fg:#94a3b8 bg:#0b1120",
         }
     )
 
