@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, Callable
 
 import openai
 from openai import OpenAI, OpenAIError
@@ -247,6 +247,8 @@ def generate_chat_reply(
     messages: Sequence[Dict[str, str]],
     model: str | None = None,
     temperature: float = 0.7,
+    stream: bool = False,
+    on_chunk: Callable[[str], None] | None = None,
 ) -> str:
     """Generate a conversational reply using chat completions."""
 
@@ -258,9 +260,20 @@ def generate_chat_reply(
             messages=list(messages),
             temperature=temperature,
             max_tokens=600,
+            stream=stream,
         )
     except OpenAIError as exc:
         raise AIServiceError("Failed to generate chat reply") from exc
+
+    if stream:
+        chunks: List[str] = []
+        for chunk in response:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                chunks.append(delta)
+                if on_chunk:
+                    on_chunk(delta)
+        return "".join(chunks).strip()
 
     choices = getattr(response, "choices", None)
     if not choices:

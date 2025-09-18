@@ -1001,6 +1001,10 @@ def _select_context_notes(
     return unique_context
 
 
+def _stream_print(text: str) -> None:
+    print(text, end="", flush=True)
+
+
 def _prompt_eli5_level() -> tuple[str, str, str] | None:
     try:
         from prompt_toolkit.application import Application as PTApplication
@@ -1282,14 +1286,17 @@ def _handle_chat(args: Sequence[str]) -> int:
     history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "user", first_message))
 
     try:
-        assistant_reply = generate_chat_reply(messages, model=model_name)
+        print("\nAssistant\n" + "=" * 60)
+        assistant_reply = generate_chat_reply(
+            messages,
+            model=model_name,
+            stream=True,
+            on_chunk=_stream_print,
+        )
+        print("\n" + "=" * 60)
     except AIServiceError as exc:
         print(f"❌ Failed to generate reply: {exc}")
         return 1
-
-    print("\nAssistant\n" + "=" * 60)
-    print(assistant_reply)
-    print("=" * 60)
 
     messages.append({"role": "assistant", "content": assistant_reply})
     history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "assistant", assistant_reply))
@@ -1306,16 +1313,19 @@ def _handle_chat(args: Sequence[str]) -> int:
         messages.append({"role": "user", "content": user_input})
 
         try:
-            assistant_reply = generate_chat_reply(messages, model=model_name)
+            print("\nAssistant\n" + "=" * 60)
+            assistant_reply = generate_chat_reply(
+                messages,
+                model=model_name,
+                stream=True,
+                on_chunk=_stream_print,
+            )
+            print("\n" + "=" * 60)
         except AIServiceError as exc:
             print(f"❌ Failed to generate reply: {exc}")
             history.pop()
             messages.pop()
             return 1
-
-        print("\nAssistant\n" + "=" * 60)
-        print(assistant_reply)
-        print("=" * 60)
 
         messages.append({"role": "assistant", "content": assistant_reply})
         history.append((datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "assistant", assistant_reply))
