@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime, timedelta
 from typing import Iterable, Sequence, Tuple
 
 from pydoc import pager
 
+from .analytics import render_sparkline, format_tag_heatmap
 from .briefing import get_agent_brief
 from .catalog import Catalog, load_catalog, save_catalog
 from .config import get_settings
 from .editor import launch_editor
-from .analytics import render_sparkline, format_tag_heatmap
 from .notes import (
     AIServiceError,
     auto_enrich_note,
@@ -24,12 +25,14 @@ from .notes import (
     remove_note,
     search_notes,
     note_counts_by_day,
+    notes_since,
     rename_category,
     rename_tag,
     update_note_text,
     tag_frequency,
     suggest_related_by_embedding,
 )
+from .services.openai_service import generate_embedding, generate_recap_summary
 
 
 def _require_api_key() -> bool:
@@ -41,13 +44,15 @@ def _require_api_key() -> bool:
 
 
 def _format_note_summary(note: dict) -> list[str]:
+    note_type = note.get("type", "note")
+    type_tile = f"[type: {note_type}]" if note_type != "note" else ""
     category_tile = f"[cat: {note['category']}]" if note.get("category") else ""
     tags = note.get("tags", [])
     tags_tile = f"[tags: {', '.join(tags)}]" if tags else ""
     links = len(note.get("related_ids", []))
     links_tile = f"[links: {links}]" if links else ""
     created_tile = f"[created: {note['created_at'][:10]}]" if note.get("created_at") else ""
-    header_tiles = " ".join(tile for tile in [category_tile, tags_tile, links_tile, created_tile] if tile)
+    header_tiles = " ".join(tile for tile in [type_tile, category_tile, tags_tile, links_tile, created_tile] if tile)
     header = f"[{note['id']}] {note['title']} {header_tiles}".rstrip()
     text = note.get("text", "")
     snippet = text[:100] + ("..." if len(text) > 100 else "")
@@ -290,6 +295,7 @@ def _print_help() -> None:
     print("  show <id>           - Show specific note")
     print("  related <id>        - Find related thoughts using AI embeddings")
     print("  remove <id>         - Remove a note by ID")
+    print("  recap [--days N]    - Generate a recap across recent notes")
     print("  stats               - Show note stats and sparkline history")
     print("  tags [limit]        - Display tag frequency heatmap")
     print("  clip                - Save current clipboard as a note")
@@ -332,6 +338,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if command == "remove":
         return _handle_remove(rest)
+
+    if command == "recap":
+        return _handle_recap(rest)
 
     if command == "help":
         _print_help()
@@ -490,6 +499,7 @@ def _render_note_detail(note: dict) -> str:
         f"📝 {note['title']}",
         "=" * 60,
         f"ID: {note['id']}",
+        f"Type: {note.get('type', 'note')}",
         f"Category: {note.get('category', '')}",
         f"Tags: {', '.join(note.get('tags', []))}",
         f"Created: {note.get('created_at', '')}",
@@ -787,4 +797,82 @@ def _handle_clip(args: Sequence[str]) -> int:
     catalog.add_tags(note["tags"])
     save_catalog(catalog)
     print(f"\n✅ Clipboard note saved! ID: {note['id']}")
+    return 0
+
+
+def _parse_days_argument(args: Sequence[str]) -> tuple[int, list[str]]:
+    days = 1
+    remaining: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--days="):
+            value = arg.split("=", 1)[1]
+            try:
+                days = max(1, int(value))
+            except ValueError:
+                print("Invalid --days value; using default (1)")
+            i += 1
+            continue
+        if arg == "--days" and i + 1 < len(args):
+            value = args[i + 1]
+            try:
+                days = max(1, int(value))
+            except ValueError:
+                print("Invalid --days value; using default (1)")
+            i += 2
+            continue
+        if arg.isdigit():
+            days = max(1, int(arg))
+        else:
+            remaining.append(arg)
+        i += 1
+    return days, remaining
+
+
+def _handle_recap(args: Sequence[str]) -> int:
+    days, _ = _parse_days_argument(args)
+    notes = notes_since(days)
+
+    if not notes:
+        print(f"No notes found in the last {days} day(s).")
+        return 0
+
+    note_ids = [note.get("id") for note in notes if note.get("id")]
+    print(
+        f"Generating recap across {len(notes)} note(s) from the last {days} day(s): "
+        + ", ".join(note_ids)
+    )
+
+    try:
+        summary = generate_recap_summary(notes)
+    except AIServiceError as exc:
+        print(f"❌ Failed to generate recap: {exc}")
+        return 1
+
+    print("\nRecap Preview\n" + "=" * 60)
+    print(summary)
+    print("=" * 60)
+
+    confirm = input("Save this recap as a note? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("❌ Recap discarded.")
+        return 0
+
+    try:
+        embedding = generate_embedding(summary)
+    except AIServiceError as exc:
+        print(f"❌ Failed to embed recap: {exc}")
+        return 1
+
+    metadata = {
+        "title": f"Recap {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "category": "Recap",
+        "tags": ["auto", "recap"],
+        "type": "recap",
+    }
+
+    recap_note = build_note(summary, metadata, embedding, related_ids=note_ids)
+    persist_note(recap_note, note_ids)
+    print(f"✅ Recap note saved with ID {recap_note['id']}.")
     return 0

@@ -33,6 +33,7 @@ def get_agent_brief() -> str:
         - search "query" – substring match across text/title/tags
         - show <id> – pager view with inline help/edit actions
         - related <id> – cosine-similarity suggestions using stored embeddings
+        - recap [--days N] – generate a saved summary across recent notes
         - add (interactive) now offers AI-suggested links + category/tag selection from catalog
         - stats – sparkline capture history and high-level counts
         - tags [limit] – tag heatmap with ASCII bars

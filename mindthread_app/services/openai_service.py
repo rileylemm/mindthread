@@ -118,4 +118,68 @@ def generate_metadata(
     return metadata
 
 
-__all__ = ["AIServiceError", "generate_embedding", "generate_metadata"]
+def generate_recap_summary(
+    notes: Sequence[Dict[str, Any]],
+    instructions: str | None = None,
+) -> str:
+    """Generate an analytical recap across multiple notes."""
+
+    if not notes:
+        raise AIServiceError("No notes supplied for recap generation")
+
+    settings = get_settings()
+    client = _get_client()
+
+    note_blocks = []
+    for note in notes:
+        block = (
+            f"ID: {note.get('id')}\n"
+            f"Title: {note.get('title')}\n"
+            f"Category: {note.get('category', '')}\n"
+            f"Tags: {', '.join(note.get('tags', []))}\n"
+            f"Text: {note.get('text', '')}"
+        )
+        note_blocks.append(block)
+
+    default_instructions = (
+        "Produce a concise recap that surfaces deeper insights from these notes. "
+        "Highlight emerging themes, unexpected connections, and concrete next steps. "
+        "Reference note IDs when calling out specifics. Structure the response using clear headings."
+    )
+
+    user_content = (
+        "Notes to analyze:\n\n"
+        + "\n\n".join(note_blocks)
+        + "\n\n"
+        + (instructions or default_instructions)
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=settings.gpt_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an insightful synthesizer who draws connections across personal notes.",
+                },
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.4,
+            max_tokens=600,
+        )
+    except OpenAIError as exc:
+        raise AIServiceError("Failed to generate recap summary") from exc
+
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise AIServiceError("OpenAI recap response did not contain choices")
+
+    return choices[0].message.content.strip()
+
+
+__all__ = [
+    "AIServiceError",
+    "generate_embedding",
+    "generate_metadata",
+    "generate_recap_summary",
+]

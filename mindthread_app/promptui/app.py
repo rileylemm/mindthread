@@ -148,10 +148,13 @@ class MindthreadPromptUI:
             style = "class:list.selected" if idx == self.selection.selected else "class:list.unselected"
             tags = note.get("tags", [])
             links = len(note.get("related_ids", []))
+            note_type = note.get("type", "note")
+            type_label = f"{note_type}" if note_type != "note" else ""
+            type_segment = f"{type_label} · " if type_label else ""
             fragments.append(
                 (
                     style,
-                    f" {note['title']} · {note.get('category', '—')} · {len(tags)} tags · {links} links\n",
+                    f" {note['title']} · {type_segment}{note.get('category', '—')} · {len(tags)} tags · {links} links\n",
                 )
             )
         return FormattedText(fragments)
@@ -259,12 +262,10 @@ class MindthreadPromptUI:
 
         run_in_terminal(_ask_edit)
 
-    def _compose_detail_text(self, note: dict) -> str:
-        return self._compose_detail_text(note, include_analytics=True)
-
-    def _compose_detail_text(self, note: dict, *, include_analytics: bool) -> str:  # type: ignore[override]
+    def _compose_detail_text(self, note: dict, include_analytics: bool = True) -> str:
         lines = [
             f"Title   : {note['title']}",
+            f"Type    : {note.get('type', 'note')}",
             f"Category: {note.get('category', '')}",
             f"Tags    : {', '.join(note.get('tags', [])) or '—'}",
             f"Created : {note.get('created_at', '')}",

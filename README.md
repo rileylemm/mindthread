@@ -44,6 +44,7 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `search "query"` | Search through your notes |
 | `show <id>` | Show a specific note in detail (pager + inline actions) |
 | `related <id>` | Find related thoughts using AI embeddings |
+| `recap [--days N]` | Generate and save a recap over recent notes |
 | `stats` | Show note stats and sparkline history |
 | `tags [limit]` | Display tag frequency heatmap |
 | `ui` | Launch the optional prompt-toolkit TUI |
@@ -84,6 +85,7 @@ That's it! No other configuration needed.
 - **AI Tagging**: GPT-4 for automatic categorization
 - **Search**: Text matching + vector similarity with scikit-learn
 - **Catalog**: `data/catalog.json` keeps known categories/tags for reuse and GPT prompting
+- **Types**: Each note has a `type` (`note`, `recap`, `eli5`, …) so auto-generated artifacts stay distinct
 - **CLI**: Lightweight command dispatcher (still installable via the `mindthread` script)
 - **Clipboard helper**: `clip` command uses the system clipboard (`pbpaste` on macOS)
 - **Analytics**: Sparkline stats (`stats`) and tag heatmap (`tags`) for quick at-a-glance context

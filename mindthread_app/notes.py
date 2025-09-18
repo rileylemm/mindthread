@@ -16,6 +16,11 @@ from .storage import load_notes, next_note_id, save_notes
 Note = Dict[str, Any]
 
 
+def _ensure_defaults(note: Note) -> Note:
+    note.setdefault("type", "note")
+    return note
+
+
 def auto_enrich_note(
     text: str,
     existing_categories: Sequence[str] | None = None,
@@ -24,6 +29,7 @@ def auto_enrich_note(
     """Return (metadata, embedding) for the provided note text."""
 
     metadata = generate_metadata(text, existing_categories, existing_tags)
+    metadata.setdefault("type", "note")
     embedding = generate_embedding(text)
     return metadata, embedding
 
@@ -41,6 +47,7 @@ def build_note(
 
     return {
         "id": note_id,
+        "type": metadata.get("type", "note"),
         "text": text,
         "title": metadata.get("title", "Untitled"),
         "category": metadata.get("category", "General"),
@@ -55,6 +62,7 @@ def persist_note(note: Note, linked_note_ids: Sequence[str] | None = None) -> No
     """Append a note to storage, updating bidirectional links."""
 
     notes = load_notes()
+    note.setdefault("type", "note")
     notes.append(note)
 
     if linked_note_ids:
@@ -77,11 +85,11 @@ def persist_note(note: Note, linked_note_ids: Sequence[str] | None = None) -> No
 
 
 def list_all_notes() -> List[Note]:
-    return load_notes()
+    return [_ensure_defaults(note) for note in load_notes()]
 
 
 def note_counts_by_day(limit: int | None = None) -> List[Tuple[str, int]]:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     counter: Counter[str] = Counter()
     for note in notes:
         created = note.get("created_at")
@@ -96,7 +104,7 @@ def note_counts_by_day(limit: int | None = None) -> List[Tuple[str, int]]:
 
 
 def tag_frequency() -> List[Tuple[str, int]]:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     counter: Counter[str] = Counter()
     for note in notes:
         for tag in note.get("tags", []):
@@ -106,7 +114,7 @@ def tag_frequency() -> List[Tuple[str, int]]:
 
 
 def search_notes(query: str) -> List[Note]:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     if not notes:
         return []
 
@@ -123,8 +131,11 @@ def search_notes(query: str) -> List[Note]:
 
 
 def get_note(note_id: str) -> Note | None:
-    notes = load_notes()
-    return next((note for note in notes if note.get("id") == note_id), None)
+    for note in load_notes():
+        note = _ensure_defaults(note)
+        if note.get("id") == note_id:
+            return note
+    return None
 
 
 def suggest_related_by_embedding(
@@ -132,7 +143,7 @@ def suggest_related_by_embedding(
     exclude_ids: Iterable[str] | None = None,
     top_k: int = 5,
 ) -> List[Tuple[Note, float]]:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     if not notes:
         return []
 
@@ -152,7 +163,7 @@ def suggest_related_by_embedding(
 
 
 def find_related_notes(note_id: str, top_k: int = 5) -> Tuple[Note, List[Tuple[Note, float]]]:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     if not notes:
         raise ValueError("No notes available")
 
@@ -179,7 +190,7 @@ def find_related_notes(note_id: str, top_k: int = 5) -> Tuple[Note, List[Tuple[N
 
 
 def remove_note(note_id: str) -> bool:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     remaining = [note for note in notes if note.get("id") != note_id]
     if len(remaining) == len(notes):
         return False
@@ -188,7 +199,7 @@ def remove_note(note_id: str) -> bool:
 
 
 def update_note_text(note_id: str, new_text: str, regenerate_embedding: bool = True) -> bool:
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     updated = False
 
     for note in notes:
@@ -211,7 +222,7 @@ def rename_category(old: str, new: str) -> bool:
     if old == new:
         return False
 
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     changed = False
     for note in notes:
         if note.get("category") == old:
@@ -226,7 +237,7 @@ def rename_tag(old: str, new: str) -> bool:
     if old == new:
         return False
 
-    notes = load_notes()
+    notes = [_ensure_defaults(note) for note in load_notes()]
     changed = False
     for note in notes:
         tags = note.get("tags", [])
@@ -269,4 +280,29 @@ __all__ = [
     "update_note_text",
     "rename_category",
     "rename_tag",
+    "note_counts_by_day",
+    "tag_frequency",
+    "notes_since",
+    "get_notes_between",
 ]
+
+
+def get_notes_between(start: datetime, end: datetime | None = None) -> List[Note]:
+    notes = [_ensure_defaults(note) for note in load_notes()]
+    results: List[Note] = []
+    for note in notes:
+        created = note.get("created_at")
+        if not created:
+            continue
+        try:
+            created_dt = datetime.fromisoformat(created)
+        except ValueError:
+            continue
+        if created_dt >= start and (end is None or created_dt <= end):
+            results.append(note)
+    return results
+
+
+def notes_since(days: int) -> List[Note]:
+    start = datetime.now() - timedelta(days=days)
+    return get_notes_between(start)
