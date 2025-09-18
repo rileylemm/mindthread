@@ -177,9 +177,68 @@ def generate_recap_summary(
     return choices[0].message.content.strip()
 
 
+def generate_eli5_explanation(
+    subject: str,
+    level_label: str,
+    level_instructions: str,
+    notes: Sequence[Dict[str, Any]],
+) -> str:
+    """Generate an explanation tailored to a specific audience level."""
+
+    settings = get_settings()
+    client = _get_client()
+
+    note_blocks: List[str] = []
+    for note in notes:
+        block = (
+            f"ID: {note.get('id')}\n"
+            f"Title: {note.get('title')}\n"
+            f"Category: {note.get('category', '')}\n"
+            f"Tags: {', '.join(note.get('tags', []))}\n"
+            f"Text: {note.get('text', '')}"
+        )
+        note_blocks.append(block)
+
+    context = "\n\n".join(note_blocks) if note_blocks else "(No related notes found.)"
+
+    user_content = (
+        f"Explain the following request: {subject}\n\n"
+        f"Audience: {level_label}\n"
+        f"Guidelines: {level_instructions}\n"
+        "Reference note IDs when relevant.\n\n"
+        f"Context notes:\n{context}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=settings.gpt_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You explain ideas using the requester's own notes when possible. "
+                        "Be accurate, friendly, and keep the tone aligned with the specified audience."
+                    ),
+                },
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.5,
+            max_tokens=600,
+        )
+    except OpenAIError as exc:
+        raise AIServiceError("Failed to generate eli5 explanation") from exc
+
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise AIServiceError("OpenAI eli5 response did not contain choices")
+
+    return choices[0].message.content.strip()
+
+
 __all__ = [
     "AIServiceError",
     "generate_embedding",
     "generate_metadata",
     "generate_recap_summary",
+    "generate_eli5_explanation",
 ]

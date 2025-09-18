@@ -32,7 +32,25 @@ from .notes import (
     tag_frequency,
     suggest_related_by_embedding,
 )
-from .services.openai_service import generate_embedding, generate_recap_summary
+
+
+ELI5_LEVELS = [
+    ("5yo", "Like a 5-year-old", "Explain using simple words, friendly analogies, and no jargon."),
+    ("middle_school", "Middle schooler", "Use approachable language and basic examples, introduce mild technical terms."),
+    ("high_school", "High schooler", "Provide a balanced explanation with concrete examples and some technical detail."),
+    ("college", "College student", "Offer a structured explanation with key concepts, assumptions, and implications."),
+    ("expert", "Domain expert", "Deliver a precise, technically rich explanation with nuanced insights and edge cases."),
+]
+from .services.openai_service import (
+    generate_embedding,
+    generate_metadata,
+    generate_recap_summary,
+    generate_eli5_explanation,
+)
+try:  # prompt_toolkit optional for eli5 level selection
+    from prompt_toolkit.shortcuts import radiolist_dialog
+except ImportError:  # pragma: no cover - fallback when prompt_toolkit absent
+    radiolist_dialog = None
 
 
 def _require_api_key() -> bool:
@@ -295,6 +313,7 @@ def _print_help() -> None:
     print("  show <id>           - Show specific note")
     print("  related <id>        - Find related thoughts using AI embeddings")
     print("  remove <id>         - Remove a note by ID")
+    print("  eli5               - Ask for an explanation at a chosen level")
     print("  recap [--days N]    - Generate a recap across recent notes")
     print("  stats               - Show note stats and sparkline history")
     print("  tags [limit]        - Display tag frequency heatmap")
@@ -338,6 +357,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if command == "remove":
         return _handle_remove(rest)
+
+    if command == "eli5":
+        return _handle_eli5(rest)
 
     if command == "recap":
         return _handle_recap(rest)
@@ -875,4 +897,116 @@ def _handle_recap(args: Sequence[str]) -> int:
     recap_note = build_note(summary, metadata, embedding, related_ids=note_ids)
     persist_note(recap_note, note_ids)
     print(f"✅ Recap note saved with ID {recap_note['id']}.")
+    return 0
+
+
+def _prompt_eli5_level() -> tuple[str, str, str] | None:
+    if radiolist_dialog is not None:
+        values = [(key, label) for key, label, _ in ELI5_LEVELS]
+        result = radiolist_dialog(
+            title="Explanation Level",
+            text="Choose how you want it explained:",
+            values=values,
+        ).run()
+        if result is None:
+            return None
+        for level in ELI5_LEVELS:
+            if level[0] == result:
+                return level
+        return None
+
+    print("Select explanation level:")
+    for index, (_, label, _) in enumerate(ELI5_LEVELS, start=1):
+        print(f"  {index}. {label}")
+    response = input("Enter number (blank to cancel): ").strip()
+    if not response:
+        return None
+    if response.isdigit():
+        idx = int(response) - 1
+        if 0 <= idx < len(ELI5_LEVELS):
+            return ELI5_LEVELS[idx]
+    print("Invalid selection.")
+    return None
+
+
+def _handle_eli5(args: Sequence[str]) -> int:
+    subject = input("What do you want explained? ").strip()
+    if not subject:
+        print("❌ Subject cannot be empty.")
+        return 1
+
+    level = _prompt_eli5_level()
+    if level is None:
+        print("❌ Eli5 request cancelled.")
+        return 1
+
+    level_key, level_label, level_instructions = level
+
+    try:
+        query_embedding = generate_embedding(subject)
+    except AIServiceError as exc:
+        print(f"❌ Failed to generate embedding for subject: {exc}")
+        return 1
+
+    related_pairs = suggest_related_by_embedding(query_embedding, top_k=5)
+    high_similarity = [pair for pair in related_pairs if pair[1] >= 0.65]
+    context_notes = [pair[0] for pair in high_similarity[:3]]
+    related_ids = [note.get("id") for note in context_notes if note.get("id")]
+
+    try:
+        explanation = generate_eli5_explanation(
+            subject,
+            level_label,
+            level_instructions,
+            context_notes,
+        )
+    except AIServiceError as exc:
+        print(f"❌ Failed to generate explanation: {exc}")
+        return 1
+
+    print("\nExplanation\n" + "=" * 60)
+    print(explanation)
+    print("=" * 60)
+
+    confirm = input("Save this explanation as a note? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("❌ Explanation discarded.")
+        return 0
+
+    try:
+        embedding = generate_embedding(explanation)
+    except AIServiceError as exc:
+        print(f"❌ Failed to embed explanation: {exc}")
+        return 1
+
+    catalog = load_catalog()
+    metadata = generate_metadata(explanation, catalog.categories, catalog.tags)
+    metadata = _apply_catalog_defaults(metadata, catalog)
+    _display_metadata(metadata, catalog)
+
+    while True:
+        choice = input("\nConfirm metadata? (y/n/edit): ").strip().lower()
+        if choice == "y":
+            break
+        if choice == "n":
+            print("❌ Explanation not saved.")
+            return 0
+        if choice == "edit":
+            metadata = _edit_metadata(metadata, catalog)
+            _display_metadata(metadata, catalog)
+            continue
+        print("Please enter 'y', 'n', or 'edit'.")
+
+    tags = metadata.get("tags", [])
+    tags.extend(["auto", "eli5", f"eli5-level:{level_key}"])
+    metadata["tags"] = sorted({tag.strip() for tag in tags if tag.strip()})
+    metadata["type"] = "eli5"
+
+    note = build_note(explanation, metadata, embedding, related_ids=related_ids)
+    persist_note(note, related_ids)
+    catalog.add_category(note["category"])
+    catalog.add_tags(metadata["tags"])  # keep catalog updated with new tags
+    save_catalog(catalog)
+
+    print(f"✅ Eli5 note saved with ID {note['id']}.")
     return 0
