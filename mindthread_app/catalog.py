@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable, Set
 
 from .config import get_settings
-from .storage import load_notes
+from .notes import list_all_notes
 
 
 CATALOG_FILENAME = "catalog.json"
@@ -75,7 +75,7 @@ def load_catalog() -> Catalog:
             return Catalog.from_payload(json.load(handle))
 
     # Build from existing notes as fallback
-    notes = load_notes()
+    notes = list_all_notes()
     categories = {note.get("category", "").strip() for note in notes if note.get("category")}
     tags = set()
     for note in notes:

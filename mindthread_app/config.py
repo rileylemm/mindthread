@@ -38,6 +38,10 @@ class Settings:
     def catalog_file(self) -> Path:
         return self.data_dir / "catalog.json"
 
+    @property
+    def database_path(self) -> Path:
+        return self.data_dir / "mindthread.db"
+
 
 def _resolve_data_dir(raw_value: str | None) -> Path:
     if not raw_value:
@@ -62,7 +66,7 @@ def get_settings() -> Settings:
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         gpt_model=os.getenv("GPT_MODEL", "gpt-4"),
-        storage_type=os.getenv("STORAGE_TYPE", "json").lower(),
+        storage_type=os.getenv("STORAGE_TYPE", "sqlite").lower(),
         data_dir=data_dir,
     )
 

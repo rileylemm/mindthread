@@ -45,14 +45,27 @@ Add thoughts. Embed them. Let GPT tag and organize. Explore the connections.
 | `show <id>` | Show a specific note in detail (pager + inline actions) |
 | `related <id>` | Find related thoughts using AI embeddings |
 | `chat` | Start an interactive conversation that references your notes |
+| `brain` | Open the Mindthread Brain strategist for high-context sessions |
 | `eli5` | Get an explanation tuned to a chosen audience level |
 | `recap [--days N]` | Generate and save a recap over recent notes |
 | `stats` | Show note stats and sparkline history |
 | `tags [limit]` | Display tag frequency heatmap |
-| `ui` | Launch the optional prompt-toolkit TUI |
-| `agent-brief` | Print an instant project orientation for AI agents |
+| `seed plant` | Plant a new Mindthread Seed (spark → intention → cadence) |
+| `seed note <id>` | Log a quick update for a Seed |
+| `seed tend [--id ID]` | Tend the next-due Seed (`:ritual` for guided prompts) |
+| `seed snooze <id>` | Push the next check forward by a few days |
+| `seed format <id>` | Inspect or switch the Seed template |
+| `seed link <a> <b>` | Link two Seeds for cross-pollination |
+| `seed links <id>` | List linked Seeds |
+| `seed export <id>` | Export a Seed (JSON) for API/TUI use |
+| `seed promote <id>` | Grow a Seed from an existing note (AI draft optional) |
+| `seed guide` | Show the Seed & Garden reference guide |
+| `garden` | Kanban-style view of all Seeds by growth state |
+| `thread …` | AI-assisted thread discovery, review, and editing |
 | `catalog` | Review categories/tags and tidy the catalog |
 | `clip` | Save current clipboard contents as a note |
+| `agent-brief` | Print an instant project orientation for AI agents |
+| `ui` | Launch the optional prompt-toolkit TUI |
 | `help` | Show available commands |
 
 Outputs for `list`, `search`, `stats`, and `tags` open in a pager by default. Add `--no-pager` to any of them to print directly.
@@ -61,12 +74,15 @@ Outputs for `list`, `search`, `stats`, and `tags` open in a pager by default. Ad
 
 Launch the optional TUI with `mindthread ui`. It uses `prompt_toolkit`, keeps the tactile CLI vibe, and works on Python 3.13.
 
+Use `mindthread garden --state Sprouting`, `--due`, or `--search vibe` to focus the Kanban view, and watch for the cadence banner that reminds you when Seeds slip past their tending window.
+
 ## Configuration
 
 Set your OpenAI API key in the `.env` file:
 
 ```bash
 OPENAI_API_KEY=sk-...
+EDITOR=nano            # optional: pick the editor Seeds/tend flows should use
 ```
 
 That's it! No other configuration needed.
@@ -74,15 +90,16 @@ That's it! No other configuration needed.
 ## Architecture
 
 - **Modular package**: CLI orchestrator with reusable modules in `mindthread_app/`
-  - `cli.py` – command parsing, interactive prompts, console rendering
-  - `notes.py` – note CRUD, search, related-note logic
-  - `services/openai_service.py` – GPT metadata + embedding helpers with error handling
-  - `storage.py` – JSON persistence (respects `DATA_DIR` and the legacy `notes.json` fallback)
-  - `config.py` – dotenv-backed settings loader
-  - `editor.py` – shared `$EDITOR` launcher for text edits
-  - `analytics.py` – sparkline + heatmap render helpers
-  - `promptui/` – prompt_toolkit-based optional interface (`run_ui`)
-- **Storage**: JSON file (defaults to `notes.json`, or `<DATA_DIR>/notes.json` if configured)
+-  - `cli.py` – command parsing, interactive prompts, console rendering
+-  - `notes.py` – note CRUD, search, related-note logic backed by SQLite
+-  - `db.py` – connection helpers, schema bootstrap, SQLite pragmas
+-  - `seeds.py` – Seed data model, cadence scheduling, tend logging
+-  - `services/openai_service.py` – GPT metadata + embedding helpers with error handling
+-  - `config.py` – dotenv-backed settings loader (`DATA_DIR`, `EDITOR`, API keys)
+-  - `editor.py` – shared `$EDITOR` launcher for text edits and seed rituals
+-  - `analytics.py` – sparkline + heatmap render helpers
+-  - `promptui/` – prompt_toolkit-based optional interface (`run_ui`)
+- **Storage**: SQLite database (`data/mindthread.db` by default) with tables for notes, seeds, tend logs, notifications
 - **Embeddings**: OpenAI text-embedding-3-small
 - **AI Tagging**: GPT-4 for automatic categorization
 - **Search**: Text matching + vector similarity with scikit-learn
